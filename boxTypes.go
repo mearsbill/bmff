@@ -82,8 +82,6 @@ type SidxRef struct {
 
 type SidxBox struct {
 	*box
-	version                    uint8
-	flags                      [3]byte
 	reference_ID               uint32
 	timescale                  uint32
 	earliest_presentation_time uint64
@@ -94,8 +92,8 @@ type SidxBox struct {
 }
 
 func (b *SidxBox) parse() error {
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 	var offset int
 
 	if b.version == 0 {
@@ -273,8 +271,6 @@ func langString(langCode uint16) string {
 
 type MdhdBox struct {
 	*box
-	version          uint8
-	flags            [3]byte
 	CreationTime     uint64
 	ModificationTime uint64
 	TimeScale        uint32
@@ -285,9 +281,7 @@ type MdhdBox struct {
 
 // <Media Header Box
 func (b *MdhdBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	// Fullbox payload begins at offset 4
 
@@ -317,8 +311,6 @@ func (b *MdhdBox) parse() error {
 
 type HdlrBox struct {
 	*box
-	version uint8
-	flags   [3]byte
 	// pre-defined 0 (32)
 	handlerType uint32
 	name        string
@@ -326,9 +318,7 @@ type HdlrBox struct {
 }
 
 func (b *HdlrBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	// Fullbox payload begins at offset 4
 	// skip over Predefined (4 bytes)
@@ -410,16 +400,12 @@ func (b *MinfBox) parse() error {
 // Video Media Header
 type VmhdBox struct {
 	*box
-	version      uint8
-	flags        [3]byte
 	graphicsmode uint16
 	opcolor      [3]uint16
 }
 
 func (b *VmhdBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 	//no decoding required
 	return nil
 }
@@ -429,16 +415,12 @@ func (b *VmhdBox) parse() error {
 // Sound Media Header
 type SmhdBox struct {
 	*box
-	version  uint8
-	flags    [3]byte
 	balance  Int8_8
 	reserved uint16
 }
 
 func (b *SmhdBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	//no decoding required
 	return nil
@@ -449,9 +431,6 @@ func (b *SmhdBox) parse() error {
 // HintMediaHeader
 type HmhdBox struct {
 	*box
-	version uint8
-	flags   [3]byte
-
 	maxPDUsize uint16
 	avgPDUsize uint16
 	maxbitrate uint32
@@ -460,10 +439,7 @@ type HmhdBox struct {
 }
 
 func (b *HmhdBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
-
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 	b.maxPDUsize = binary.BigEndian.Uint16(b.raw[4:6])
 	b.avgPDUsize = binary.BigEndian.Uint16(b.raw[6:8])
 	b.maxbitrate = binary.BigEndian.Uint32(b.raw[8:12])
@@ -476,14 +452,10 @@ func (b *HmhdBox) parse() error {
 // Null Media Header
 type NmhdBox struct {
 	*box
-	version uint8
-	flags   [3]byte
 }
 
 func (b *NmhdBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	//no decoding required
 	return nil
@@ -492,16 +464,12 @@ func (b *NmhdBox) parse() error {
 // Data Information box, container
 type DinfBox struct {
 	*box
-	version  uint8
-	flags    [3]byte
 	balance  Int8_8
 	reserved uint16
 }
 
 func (b *DinfBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	//no decoding required
 	return nil
@@ -510,14 +478,10 @@ func (b *DinfBox) parse() error {
 // Data Information box, container
 type StblBox struct {
 	*box
-	version uint8
-	flags   [3]byte
 }
 
 func (b *StblBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	//no decoding required
 	return nil
@@ -558,17 +522,13 @@ func (b *UdtaBox) parse() error {
 // HintMediaHeader
 type CprtBox struct {
 	*box
-	version  uint8
-	flags    [3]byte
 	langCode uint16
 	langStr  string
 	notice   string
 }
 
 func (b *CprtBox) parse() error {
-	// Fullbox fields:  8bits=>version 24bits=>flags
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 
 	offset := 4
 	//b.langCode = binary.BigEndian.Uint16(b.raw[offset : offset+2])
@@ -587,9 +547,6 @@ func (b *CprtBox) parse() error {
 
 type MvhdBox struct {
 	*box
-	version uint8
-	flags   [3]byte
-
 	CreationTime     uint64
 	ModificationTime uint64
 	TimeScale        uint32
@@ -603,8 +560,7 @@ type MvhdBox struct {
 }
 
 func (b *MvhdBox) parse() error {
-	b.version = b.raw[0]
-	b.flags = [3]byte{b.raw[1], b.raw[2], b.raw[3]}
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 	var offset int
 	if b.version == 0 {
 		b.CreationTime = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
@@ -650,8 +606,6 @@ func (b *IodsBox) parse() error {
 
 type TkhdBox struct {
 	*box
-	version          uint8
-	flags            [3]byte
 	CreationTime     uint64
 	ModificationTime uint64
 	TrackID          uint32
@@ -665,8 +619,7 @@ type TkhdBox struct {
 }
 
 func (b *TkhdBox) parse() error {
-	b.version = b.raw[0]
-	b.flags = [3]byte{b.raw[1], b.raw[2], b.raw[3]}
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 	var offset int
 	if b.version == 0 {
 		b.CreationTime = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
@@ -771,14 +724,11 @@ func (b *MoofBox) parse() error {
 
 type MfhdBox struct {
 	*box
-	version         byte
-	flags           [3]byte
 	sequence_number uint32
 }
 
 func (b *MfhdBox) parse() error {
-	b.version = b.raw[0]
-	b.flags = [3]byte{b.raw[1], b.raw[2], b.raw[3]}
+	b.parseFullBoxExt() // consume [0:4] => version and flags
 	b.sequence_number = binary.BigEndian.Uint32(b.raw[4:8])
 	return nil
 }

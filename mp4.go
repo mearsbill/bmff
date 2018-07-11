@@ -36,6 +36,7 @@ func readBoxes(buf []byte, tag *efmt.Ntag) <-chan *box {
 	return boxes
 }
 
+// highest level parser.
 func Parse(src io.Reader) (*File, error) {
 	f := &File{}
 	r := bufio.NewReader(src)
@@ -111,6 +112,7 @@ readloop:
 			f.Sidx = sb
 		default:
 			fmt.Printf("%s: @Top.. Unknown Type:%s\n", b.Tag.String(), b.Type())
+			b.unknown = true
 		}
 		f.AllBoxes = append(f.AllBoxes, b)
 

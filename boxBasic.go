@@ -10,8 +10,6 @@ import (
 	"efmt"
 )
 
-const boxHeaderSize = 8
-
 // Box is defined as "object‐oriented building block defined by a unique type identifier and length".
 // Used in MP4 Containers and referenced as an "atom" in some specifications including the first definition of MP4.
 //
@@ -39,13 +37,28 @@ type box struct {
 	usertype  string // if boxtype == 'uuid' then this is that uuid
 	size      uint32 //  size includes header
 	largesize int64  // if size == 1 then use largesize for size
-	raw       []byte
+	boxExt_s
+	raw []byte
 
-	// container Vars
+	// container Vars boxes typically don't act as containers and also decoders
 	unknown  star // we don't know how to parse this
 	readIdx  int
 	writeIdx int
 	subBox   []*box
+}
+
+type boxExt_s struct {
+	isFullBox bool // is the ext In use
+	version   uint8
+	flags     [3]byte
+}
+
+// helper function to parse the FullBox Extension
+// note:  Parsing is pulled from the raw payload... size is not adjusted
+func (b *box) parseFullBoxExt() {
+	b.isFullBox = true
+	b.version = b.raw[0]
+	copy(b.flags[0:3], b.raw[1:4])
 }
 
 // Generic Box interface
@@ -58,6 +71,8 @@ type Box interface {
 	ResetSubBox()
 	GetSubBox() (*box, error)
 	AddSubBox(*box)
+
+	Output(io.Writer)
 }
 
 // recursive function to print out the box type, size and substructure of a box
@@ -110,9 +125,88 @@ func (b *box) AddSubBox(aBox *box) {
 	b.writeIdx++
 }
 
+func (b *box) Output(w io.Writer) (writeCount int, err error) {
+	// basic writer outputs only containers and raw
+	// must use proper boxtype for other boxes
+	wCount := 0
+	if b.GetSubBoxCount() != 0 {
+		for _, subBox := range b.subBox {
+			oC, bErr := subBox.Output(w)
+			if bErr != nil {
+				bErr = fmt.Errorf("Got subbox.Output error: %v", err)
+				return wCount, bErr
+			}
+			wCount += oC
+		}
+		return wCount, nil
+	}
+	if b.size == 0 {
+		// shouln't be possible
+		err = fmt.Errorf("Don't support size=0")
+		return 0, err
+	}
+
+	// make a large header area and then shorten it for writing
+	oh := make([]byte, 128)
+
+	// encode size, then boxType
+	binary.BigEndian.PutUint32(oh[0:4], b.size)
+	copy(oh[4:8], []byte(b.boxtype))
+	oIdx := 8
+
+	// optionally encode largeSize and usertype
+	if b.size == 1 {
+		binary.BigEndian.PutUint64(oh[oIdx:oIdx+8], uint64(b.largesize))
+		oIdx += 8
+	}
+	if b.boxtype == "uuid" {
+		copy(oh[oIdx:oIdx+16], []byte(b.usertype))
+		oIdx += 16
+	}
+
+	// now optionally encode full header
+	if b.isFullBox {
+		oh[oIdx] = b.version
+		copy(oh[oIdx+1:oIdx+4], b.flags[:])
+		oIdx += 4
+	}
+
+	// output the header
+	var writeCnt int
+	//fmt.Printf("Output H: %+v\n", oh[0:oIdx])
+	writeCnt, err = w.Write(oh[0:oIdx])
+	if err != nil {
+		return 0, err
+	}
+	wCount += writeCnt
+
+	// output the raw payload.
+	//fmt.Printf("Output P: %+v\n", b.raw)
+	writeCnt, err = w.Write(b.raw)
+	return writeCnt + wCount, nil
+
+	// // perform basic raw output
+	// err = binary.Write(w, binary.BigEndian, b.size)
+	// if err != nil {
+	// 	fmt.Printf("box.Output binary.Write got err: %v\n", err)
+	// 	return 0, err
+	// }
+	// // if size is 1 then also output the largesize (8 bytes)
+	// if b.size == 1 {
+	// 	// largeSize
+	// 	err = binary.Write(w, binary.BigEndian, b.largesize)
+	// 	if err != nil {
+	// 		fmt.Printf("box.Output binary.Write got err: %v\n", err)
+	// 		return 0, err
+	// 	}
+	// }
+}
+
 // ****************************
 
 //NewBox returns a raw parsing of a box from the input io.Reader
+const boxHeaderSize = 8
+
 func NewBox(src io.Reader, newtag *efmt.Ntag) (*box, error) {
 
 	buf := make([]byte, boxHeaderSize)
