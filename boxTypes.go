@@ -8,7 +8,7 @@ import (
 )
 
 // File is the top level containter for the decode
-type File struct {
+type File_s struct {
 	Ftyp *FtypBox // file tyoe box
 	// pdin  progressive download info
 	Moov *MoovBox // container all metadata
@@ -27,10 +27,10 @@ type File struct {
 }
 
 // PrintAll  Helper function to output a tree of the whole file
-func (f *File) PrintAll() {
+func (f *File_s) PrintAll() {
 	for _, b := range f.AllBoxes {
 		//fmt.Printf("Calling pfunc for %+v\n",b)
-		b.pFunc()
+		b.PrintRecursive()
 		//        fmt.Printf("%8s %s %s\n",b.Tag.Rank(),b.Tag.IndentStr(),b.Type())
 	}
 }

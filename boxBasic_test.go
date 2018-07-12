@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"efmt"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,7 +81,7 @@ func TestBasicBoxes(t *testing.T) {
 				wB.Truncate(0)
 
 				b, _ := NewBox(reader, nt)
-				wCnt, err := b.Output(wB)
+				wCnt, err := b.Output(wB, 0)
 				if err != nil {
 					t.Errorf("#%d: %s: Output error: %v", idx, tt.name, err)
 					return
@@ -108,57 +106,115 @@ func TestBasicBoxes(t *testing.T) {
 	}
 
 }
-
-func readerFromFixture(t *testing.T, path string) io.Reader {
-	t.Helper()
-
-	f, err := os.OpenFile(path, os.O_RDONLY, 0400)
-	if err != nil {
-		t.Fatalf("failed to open %s file for read: %v", path, err)
+func compareFiles(r, w *os.File) (firstDiff int, err error) {
+	r.Seek(0, 0)
+	w.Seek(0, 0)
+	cCnt := 0
+	readSize := 8192 * 4
+	b1 := make([]byte, readSize)
+	b2 := make([]byte, readSize)
+	for {
+		rCount, rErr := r.Read(b1)
+		if rErr != nil {
+			return cCnt, fmt.Errorf("Compare read error(r) @ offset %d: %v", cCnt, rErr)
+			return
+		}
+		wCount, wErr := w.Read(b2)
+		if wErr != nil {
+			return cCnt, fmt.Errorf("Compare read error(3) @ offset %d: %v", cCnt, wErr)
+			return
+		}
+		if wCount != rCount {
+			return wCount, fmt.Errorf("File lengths differ.. r:%d  w:%d", cCnt+rCount, cCnt+wCount)
+		}
+		if rCount > 0 {
+			for idx := 0; idx < rCount; idx++ {
+				if b1[idx] != b2[idx] {
+					return cCnt + idx, fmt.Errorf("Files differ (r:%02x vs w:%02x) starting at offset %d",
+						b1[idx], b2[idx], cCnt+idx)
+				}
+			}
+		}
+		cCnt += rCount
+		if rCount == readSize {
+			return cCnt, nil
+		}
 	}
-	return f
-}
-func writerFromFixture(t *testing.T, path string) io.Writer {
-	t.Helper()
-
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		t.Fatalf("failed to open %s file for write: %v", path, err)
-	}
-	return f
 }
 
-func TestFileReadWrite(t *testing.T) {
+func TestSmallFile(t *testing.T) {
 	type args struct {
-		src io.Reader
-		dst io.Writer
+		src string
+		dst string
 	}
 
 	tests := []struct {
-		name    string
-		args    args
-		want    int
-		wantErr bool
+		name     string
+		src      string
+		dst      string
+		maxDepth int
 	}{
 		{
-			name: "Test box parsing",
-			args: args{
-				src: readerFromFixture(t, filepath.Join("testdata", "01_simple.mp4")),
-				dst: writerFromFixture(t, filepath.Join("testdata", "01_simple_output.mp4")),
-			},
+			name:     "Test Read/Write Matching at all box depths",
+			src:      filepath.Join("testdata", "01_simple.mp4"),
+			dst:      filepath.Join("testdata", "01_simple_output.mp4"),
+			maxDepth: 6,
+		},
+		{
+			name:     "Test Read/Write Matching depth=1",
+			src:      "/Users/bmears/videoClips/seaworld.mp4",
+			dst:      "/tmp/searworld_out.mp4",
+			maxDepth: 6,
+		},
+		{
+			name:     "Test Read/Write Matching depth=1",
+			src:      "/Users/bmears/videoClips/chunk_ctaudio_cfm4s_ridp0aa0br88560_cs46262195568_w1932408732_mpd.m4s",
+			dst:      "/tmp/chunk_ctaudio_cfm4s_ridp0aa0br88560_cs46262195568_w1932408732_mpd_out.mp4",
+			maxDepth: 6,
+		},
+		{
+			name:     "Test Read/Write Matching depth=1",
+			src:      "/Users/bmears/videoClips/chunk_ctvideo_cfm4s_ridp0va0br41991_cs86746737600_w1932408732_mpd.m4s",
+			dst:      "/tmp/chunk_ctvideo_cfm4s_ridp0va0br41991_cs86746737600_w1932408732_mpd_out.mp4",
+			maxDepth: 6,
 		},
 	}
-	for _, tt := range tests {
+	// use these vars across tests ... some are carried between sequential tests
+	var bF0 *File_s
+	var fileSize int
+	for idx, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f, err := Parse(tt.args.src)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			switch {
+			case idx >= 0 && idx <= 99:
+				for depth := 1; depth <= tt.maxDepth; depth++ {
+					// open source and destination files
+					rF, err := os.OpenFile(tt.src, os.O_RDONLY, 0400)
+					if err != nil {
+						t.Fatalf("failed to open %s file for read: %v", tt.src, err)
+					}
+					wF, err := os.OpenFile(tt.dst, os.O_RDWR|os.O_CREATE, 0600)
+					if err != nil {
+						t.Fatalf("failed to open %s file for write: %v", tt.dst, err)
+					}
+					bF0, err = Parse(rF)
+					if err != nil {
+						t.Errorf("Box Parse() error = %v", err)
+						return
+					}
+					fileSize, err = bF0.Output(wF, depth) // just the toplevel files
+
+					_, cErr := compareFiles(rF, wF)
+					if cErr != nil {
+						t.Errorf("File compare error = %v ", cErr)
+						return
+					}
+					rF.Close()
+					wF.Close()
+				}
+
+			default:
+				fmt.Printf("Unhandled Test case %d", idx)
 			}
-			log.Printf(`
-Ftyp: %+v\n
-Moov: %+v\n
-`, f.Ftyp, f.Moov)
 		})
 	}
 }

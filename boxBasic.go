@@ -26,9 +26,8 @@ type star bool
 func (i star) String() string {
 	if i == true {
 		return "*"
-	} else {
-		return " "
 	}
+	return " "
 }
 
 type box struct {
@@ -53,14 +52,6 @@ type boxExt_s struct {
 	flags     [3]byte
 }
 
-// helper function to parse the FullBox Extension
-// note:  Parsing is pulled from the raw payload... size is not adjusted
-func (b *box) parseFullBoxExt() {
-	b.isFullBox = true
-	b.version = b.raw[0]
-	copy(b.flags[0:3], b.raw[1:4])
-}
-
 // Generic Box interface
 type Box interface {
 	Type() string
@@ -72,18 +63,35 @@ type Box interface {
 	GetSubBox() (*box, error)
 	AddSubBox(*box)
 
+	PrintDetail()
+	PrintRecursive()
 	Output(io.Writer)
 }
 
+// helper function to parse the FullBox Extension
+// note:  Parsing is pulled from the raw payload... size is not adjusted
+func (b *box) parseFullBoxExt() {
+	b.isFullBox = true
+	b.version = b.raw[0]
+	copy(b.flags[0:3], b.raw[1:4])
+}
+
 // recursive function to print out the box type, size and substructure of a box
-func (b *box) pFunc() {
-	fmt.Printf("%-16s %-16s %7d\n", b.Tag.String(), b.Tag.Indent()+b.boxtype+" "+b.unknown.String(), b.size)
+func (b *box) PrintDetail() {
+	children := "   "
+	cCount := b.GetSubBoxCount()
+	if cCount > 0 {
+		children = fmt.Sprintf("%2d ", cCount)
+	}
+	fmt.Printf("%-16s %-19s %7d\n", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.unknown.String(), b.size)
+}
+
+func (b *box) PrintRecursive() {
+	b.PrintDetail()
 	b.ResetSubBox()
 	b1, err := b.GetSubBox()
-	//fmt.Printf("First Next is %v\n",err)
 	for err == nil {
-		//fmt.Printf("Calling pfunc from pfunc for %+v\n",b1)
-		b1.pFunc()
+		b1.PrintRecursive()
 		b1, err = b.GetSubBox()
 	}
 }
@@ -125,28 +133,9 @@ func (b *box) AddSubBox(aBox *box) {
 	b.writeIdx++
 }
 
-func (b *box) Output(w io.Writer) (writeCount int, err error) {
-	// basic writer outputs only containers and raw
-	// must use proper boxtype for other boxes
-	wCount := 0
-	if b.GetSubBoxCount() != 0 {
-		for _, subBox := range b.subBox {
-			oC, bErr := subBox.Output(w)
-			if bErr != nil {
-				bErr = fmt.Errorf("Got subbox.Output error: %v", err)
-				return wCount, bErr
-			}
-			wCount += oC
-		}
-		return wCount, nil
-	}
-	if b.size == 0 {
-		// shouln't be possible
-		err = fmt.Errorf("Don't support size=0")
-		return 0, err
-	}
-
+func (b *box) outputHeader(w io.Writer) (writeCount int, err error) {
 	// make a large header area and then shorten it for writing
+	// assemble out header into this array and then output it
 	oh := make([]byte, 128)
 
 	// encode size, then boxType
@@ -165,41 +154,52 @@ func (b *box) Output(w io.Writer) (writeCount int, err error) {
 	}
 
 	// now optionally encode full header
+	// ********  WARNING... This is actually consumed from the raw payload.... so it must be factored
+	// out later
 	if b.isFullBox {
 		oh[oIdx] = b.version
 		copy(oh[oIdx+1:oIdx+4], b.flags[:])
 		oIdx += 4
 	}
+	return w.Write(oh[0:oIdx])
 
-	// output the header
-	var writeCnt int
-	//fmt.Printf("Output H: %+v\n", oh[0:oIdx])
-	writeCnt, err = w.Write(oh[0:oIdx])
+}
+
+func (b *box) Output(w io.Writer, objDepth int) (writeCount int, err error) {
+	// basic writer outputs only containers and raw
+	// must use proper boxtype for other boxes
+	wCount, err := b.outputHeader(w)
 	if err != nil {
+		return wCount, err
+	}
+	if objDepth > 0 && b.GetSubBoxCount() != 0 {
+		for _, subBox := range b.subBox {
+			oC, bErr := subBox.Output(w, objDepth-1)
+			if bErr != nil {
+				bErr = fmt.Errorf("Got subbox.Output error: %v", err)
+				return wCount, bErr
+			}
+			wCount += oC
+		}
+		return wCount, nil
+	}
+	if b.size == 0 {
+		// shouln't be possible
+		err = fmt.Errorf("We don't support size=0")
 		return 0, err
 	}
-	wCount += writeCnt
 
-	// output the raw payload.
+	// output the raw payload...  account for the extended header
+	payloadIdx := 0
+	if b.isFullBox {
+		payloadIdx = 4
+	}
 	//fmt.Printf("Output P: %+v\n", b.raw)
-	writeCnt, err = w.Write(b.raw)
-	return writeCnt + wCount, nil
-
-	// // perform basic raw output
-	// err = binary.Write(w, binary.BigEndian, b.size)
-	// if err != nil {
-	// 	fmt.Printf("box.Output binary.Write got err: %v\n", err)
-	// 	return 0, err
-	// }
-	// // if size is 1 then also output the largesize (8 bytes)
-	// if b.size == 1 {
-	// 	// largeSize
-	// 	err = binary.Write(w, binary.BigEndian, b.largesize)
-	// 	if err != nil {
-	// 		fmt.Printf("box.Output binary.Write got err: %v\n", err)
-	// 		return 0, err
-	// 	}
-	// }
+	writeCnt, err := w.Write(b.raw[payloadIdx:])
+	wCount += writeCnt
+	//fmt.Printf("Output: %6d ", wCount)
+	//b.pThis()
+	return wCount, nil
 }
 
 // ****************************

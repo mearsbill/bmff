@@ -37,8 +37,8 @@ func readBoxes(buf []byte, tag *efmt.Ntag) <-chan *box {
 }
 
 // highest level parser.
-func Parse(src io.Reader) (*File, error) {
-	f := &File{}
+func Parse(src io.Reader) (*File_s, error) {
+	f := &File_s{}
 	r := bufio.NewReader(src)
 
 	topTag := efmt.NewNtag()
@@ -119,4 +119,21 @@ readloop:
 	}
 
 	return f, nil
+}
+
+// function to output the  contents of the file object
+// objDepth = 1 means just the top level (zero will also work for this)
+func (f *File_s) Output(w io.Writer, objDepth int) (byteCount int, err error) {
+	// depth of zero means: go no deeper
+	totalByteCount := 0
+	for idx, bx := range f.AllBoxes {
+		boxByteCount, err := bx.Output(w, objDepth-1)
+		totalByteCount += boxByteCount
+		if err != nil {
+			err = fmt.Errorf("#%d.. Output got error: %v", idx, err)
+			return totalByteCount, err
+		}
+	}
+
+	return totalByteCount, nil
 }
