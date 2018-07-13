@@ -38,14 +38,18 @@ func readBoxes(buf []byte, tag *efmt.Ntag) <-chan *box {
 
 // highest level parser.
 func Parse(src io.Reader) (*File_s, error) {
-	f := &File_s{}
+	fb := &box{}
+	f := &File_s{box: fb}
 	r := bufio.NewReader(src)
 
 	topTag := efmt.NewNtag()
+	var bx Box
+	var bxFlag bool
 
 readloop:
 	for {
 		b, err := NewBox(r, topTag)
+		bxFlag = false
 		topTag.Next()
 		if err != nil {
 			switch errors.Cause(err) {
@@ -63,7 +67,17 @@ readloop:
 			if err := fb.parse(); err != nil {
 				return nil, err
 			}
-			f.Ftyp = fb
+			f.Ftyp, bx, bxFlag = fb, fb, true
+
+		case "styp":
+			sb := &StypBox{box: b}
+			if err := sb.parse(); err != nil {
+				return nil, err
+			}
+			f.Styp = sb
+			bx = sb
+			bxFlag = true
+			//f.AllBoxes = append(f.AllBoxes, b)
 		// case pdin
 		//
 		case "moov":
@@ -98,23 +112,23 @@ readloop:
 			f.Meta = meta
 			// case meco
 			//
-		case "styp":
-			sb := &StypBox{box: b}
-			if err := sb.parse(); err != nil {
-				return nil, err
-			}
-			f.Styp = sb
 		case "sidx":
 			sb := &SidxBox{box: b}
 			if err := sb.parse(); err != nil {
 				return nil, err
 			}
 			f.Sidx = sb
+			bx = sb
+			bxFlag = true
 		default:
 			fmt.Printf("%s: @Top.. Unknown Type:%s\n", b.Tag.String(), b.Type())
-			b.unknown = true
+			b.typeNotDecoded = true
 		}
-		f.AllBoxes = append(f.AllBoxes, b)
+		if bxFlag {
+			f.AddSubBox(bx)
+		} else {
+			f.AddSubBox(b)
+		}
 
 	}
 
@@ -126,7 +140,7 @@ readloop:
 func (f *File_s) Output(w io.Writer, objDepth int) (byteCount int, err error) {
 	// depth of zero means: go no deeper
 	totalByteCount := 0
-	for idx, bx := range f.AllBoxes {
+	for idx, bx := range f.subBox {
 		boxByteCount, err := bx.Output(w, objDepth-1)
 		totalByteCount += boxByteCount
 		if err != nil {

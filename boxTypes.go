@@ -9,6 +9,7 @@ import (
 
 // File is the top level containter for the decode
 type File_s struct {
+	*box
 	Ftyp *FtypBox // file tyoe box
 	// pdin  progressive download info
 	Moov *MoovBox // container all metadata
@@ -23,16 +24,24 @@ type File_s struct {
 	// meco  additional metadata container
 	// ssix  subsegement index
 	// prft  produceer reference time
-	AllBoxes []*box
+	// AllBoxes []Box
 }
 
 // PrintAll  Helper function to output a tree of the whole file
-func (f *File_s) PrintAll() {
-	for _, b := range f.AllBoxes {
-		//fmt.Printf("Calling pfunc for %+v\n",b)
-		b.PrintRecursive()
-		//        fmt.Printf("%8s %s %s\n",b.Tag.Rank(),b.Tag.IndentStr(),b.Type())
+func (f *File_s) PrintDetail() {
+	fmt.Printf("File Contents in order:\n\n")
+}
+func (b *File_s) PrintRecursive() {
+	b.PrintDetail()
+	b.ResetSubBox()
+	b1, err := b.GetSubBox()
+	for err == nil {
+		b1.PrintRecursive()
+		b1, err = b.GetSubBox()
 	}
+}
+func (f *File_s) PrintAll() {
+	f.PrintRecursive()
 }
 
 type FtypBox struct {
@@ -52,6 +61,31 @@ func (b *FtypBox) parse() error {
 	return nil
 }
 
+// specific funciton for this typwe
+func (b *FtypBox) PrintDetail() {
+	children := "   "
+	cCount := b.GetSubBoxCount()
+	if cCount > 0 {
+		children = fmt.Sprintf("%2d ", cCount)
+	}
+	fmt.Printf("%-16s %-19s %7d", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
+	fmt.Printf(" MajBrand:%s MinVer:%d  CompBrands(%d): ", b.MajorBrand, b.MinorVersion, len(b.CompatibleBrands))
+	for i := 0; i < len(b.CompatibleBrands); i++ {
+		fmt.Printf("%4s ", b.CompatibleBrands[i])
+	}
+	fmt.Printf("\n")
+
+}
+func (b *FtypBox) PrintRecursive() {
+	b.PrintDetail()
+	b.ResetSubBox()
+	b1, err := b.GetSubBox()
+	for err == nil {
+		b1.PrintRecursive()
+		b1, err = b.GetSubBox()
+	}
+}
+
 type StypBox struct {
 	*box
 	MajorBrand       string
@@ -67,6 +101,31 @@ func (b *StypBox) parse() error {
 		}
 	}
 	return nil
+}
+
+// specific funciton for this typwe
+func (b *StypBox) PrintDetail() {
+	children := "   "
+	cCount := b.GetSubBoxCount()
+	if cCount > 0 {
+		children = fmt.Sprintf("%2d ", cCount)
+	}
+	fmt.Printf("%-16s %-19s %7d", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
+	fmt.Printf(" MajBrand:%s MinVer:%d  CompBrands(%d): ", b.MajorBrand, b.MinorVersion, len(b.CompatibleBrands))
+	for i := 0; i < len(b.CompatibleBrands); i++ {
+		fmt.Printf("%4s ", b.CompatibleBrands[i])
+	}
+	fmt.Printf("\n")
+
+}
+func (b *StypBox) PrintRecursive() {
+	b.PrintDetail()
+	b.ResetSubBox()
+	b1, err := b.GetSubBox()
+	for err == nil {
+		b1.PrintRecursive()
+		b1, err = b.GetSubBox()
+	}
 }
 
 // *********************************************************
@@ -118,6 +177,32 @@ func (b *SidxBox) parse() error {
 	return nil
 }
 
+// specific funciton for this typwe
+func (b *SidxBox) PrintDetail() {
+	children := "   "
+	cCount := b.GetSubBoxCount()
+	if cCount > 0 {
+		children = fmt.Sprintf("%2d ", cCount)
+	}
+	fmt.Printf("%-16s %-19s %7d", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
+	fmt.Printf(" Ver:%d Flags:0x%02x%02x%02x", b.version, b.flags[0], b.flags[1], b.flags[2])
+	fmt.Printf(" EPT:%d fOffs:%d rsrvd:%d  RefCnt(%d) ", b.earliest_presentation_time, b.first_offset, b.reserved, len(b.refs))
+	// for i := 0; i < len(b.CompatibleBrands); i++ {
+	// 	fmt.Printf("%4s ", b.CompatibleBrands[i])
+	// }
+	fmt.Printf("\n")
+
+}
+func (b *SidxBox) PrintRecursive() {
+	b.PrintDetail()
+	b.ResetSubBox()
+	b1, err := b.GetSubBox()
+	for err == nil {
+		b1.PrintRecursive()
+		b1, err = b.GetSubBox()
+	}
+}
+
 // *********************************************************
 
 type MoovBox struct {
@@ -154,7 +239,7 @@ func (b *MoovBox) parse() error {
 			b.TrackBoxes = append(b.TrackBoxes, trak)
 		default:
 			fmt.Printf("%s: Unknown Moov(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 		}
 		b.AddSubBox(subBox)
 	}
@@ -207,7 +292,7 @@ func (b *TrakBox) parse() error {
 			b.Tref = tref
 		default:
 			fmt.Printf("Unknown Trak SubType: %s\n", subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
@@ -251,7 +336,7 @@ func (b *MdiaBox) parse() error {
 			b.Minf = &minf
 		default:
 			fmt.Printf("Unknown Mdia SubType: %s\n", subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
@@ -386,7 +471,7 @@ func (b *MinfBox) parse() error {
 			b.Stbl = &stbl
 		default:
 			fmt.Printf("Unknown Minf SubType: %s\n", subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
@@ -511,7 +596,7 @@ func (b *UdtaBox) parse() error {
 			b.Cprt = &cprt
 		default:
 			fmt.Printf("Unknown Udta SubType: %s\n", subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
@@ -712,7 +797,7 @@ func (b *MoofBox) parse() error {
 			b.Traf = append(b.Traf, traf)
 		default:
 			fmt.Printf("%s: Unknown Moof subtype(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 		}
 		b.AddSubBox(subBox)
 	}
@@ -775,7 +860,7 @@ func (b *TrafBox) parse() error {
 			b.Meta = meta
 		default:
 			fmt.Printf("Unknown Traf SubType: %s\n", subBox.Type())
-			subBox.unknown = true
+			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)

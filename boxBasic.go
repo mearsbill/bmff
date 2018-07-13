@@ -40,10 +40,10 @@ type box struct {
 	raw []byte
 
 	// container Vars boxes typically don't act as containers and also decoders
-	unknown  star // we don't know how to parse this
-	readIdx  int
-	writeIdx int
-	subBox   []*box
+	typeNotDecoded star // we don't know how to parse this
+	readIdx        int
+	writeIdx       int
+	subBox         []Box
 }
 
 type boxExt_s struct {
@@ -55,17 +55,17 @@ type boxExt_s struct {
 // Generic Box interface
 type Box interface {
 	Type() string
-	Size() uint64
+	Size() int64
 	Raw() []byte // when subBoxes exist, raw returns an empty array
 
 	GetSubBoxCount() int
 	ResetSubBox()
-	GetSubBox() (*box, error)
-	AddSubBox(*box)
+	GetSubBox() (Box, error)
+	AddSubBox(Box)
 
 	PrintDetail()
 	PrintRecursive()
-	Output(io.Writer)
+	Output(io.Writer, int) (writeCount int, err error)
 }
 
 // helper function to parse the FullBox Extension
@@ -83,11 +83,13 @@ func (b *box) PrintDetail() {
 	if cCount > 0 {
 		children = fmt.Sprintf("%2d ", cCount)
 	}
-	fmt.Printf("%-16s %-19s %7d\n", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.unknown.String(), b.size)
+	fmt.Printf("%-16s %-19s %7d\n", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
 }
 
 func (b *box) PrintRecursive() {
-	b.PrintDetail()
+	var bx Box
+	bx = b
+	bx.PrintDetail()
 	b.ResetSubBox()
 	b1, err := b.GetSubBox()
 	for err == nil {
@@ -121,14 +123,14 @@ func (b *box) GetSubBoxCount() int {
 func (b *box) ResetSubBox() {
 	b.readIdx = 0
 }
-func (b *box) GetSubBox() (*box, error) {
+func (b *box) GetSubBox() (Box, error) {
 	if b.readIdx == b.writeIdx {
 		return nil, fmt.Errorf("No box available")
 	}
 	b.readIdx++
 	return b.subBox[b.readIdx-1], nil
 }
-func (b *box) AddSubBox(aBox *box) {
+func (b *box) AddSubBox(aBox Box) {
 	b.subBox = append(b.subBox, aBox)
 	b.writeIdx++
 }
