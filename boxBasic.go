@@ -31,16 +31,16 @@ func (i star) String() string {
 }
 
 type box struct {
-	Tag       *efmt.Ntag
-	boxtype   string
-	usertype  string // if boxtype == 'uuid' then this is that uuid
-	size      uint32 //  size includes header
-	largesize int64  // if size == 1 then use largesize for size
-	boxExt_s
-	raw []byte
+	Tag       *efmt.Ntag // for structured identification and printing
+	boxtype   string     // from 4 byte field
+	usertype  string     // if boxtype == 'uuid' then this is that uuid
+	size      uint32     // size includes all header data starting at firt byte (boxtype)
+	largesize int64      // if size == 1 then use this 'largesize' for size
+	boxExt_s             // this embedded field embodies the "Full Box extension"... available for all boxes
+	raw       []byte
 
 	// container Vars boxes typically don't act as containers and also decoders
-	typeNotDecoded star // we don't know how to parse this
+	typeNotDecoded star // flag that we don't know how to parse this
 	readIdx        int
 	writeIdx       int
 	subBox         []Box
@@ -135,6 +135,15 @@ func (b *box) AddSubBox(aBox Box) {
 	b.writeIdx++
 }
 
+func (b *box) EncodeFullHeaderExt() (writeCount int) {
+	if !b.isFullBox {
+		return 0
+	}
+	b.raw[0] = b.version
+	copy(b.raw[1:4], b.flags[:])
+	return 4
+}
+
 func (b *box) outputHeader(w io.Writer) (writeCount int, err error) {
 	// make a large header area and then shorten it for writing
 	// assemble out header into this array and then output it
@@ -170,6 +179,8 @@ func (b *box) outputHeader(w io.Writer) (writeCount int, err error) {
 func (b *box) Output(w io.Writer, objDepth int) (writeCount int, err error) {
 	// basic writer outputs only containers and raw
 	// must use proper boxtype for other boxes
+
+	// FIXME  should confirm the size for each box is sum of subboxes/payload plus header
 	wCount, err := b.outputHeader(w)
 	if err != nil {
 		return wCount, err
@@ -185,6 +196,7 @@ func (b *box) Output(w io.Writer, objDepth int) (writeCount int, err error) {
 		}
 		return wCount, nil
 	}
+
 	if b.size == 0 {
 		// shouln't be possible
 		err = fmt.Errorf("We don't support size=0")

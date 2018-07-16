@@ -20,6 +20,7 @@ type File_s struct {
 	// skip  free space
 	Meta *MetaBox // metadata
 	Styp *StypBox // segment type
+	Emsg *EmsgBox // event message box
 	Sidx *SidxBox // segment index
 	// meco  additional metadata container
 	// ssix  subsegement index
@@ -876,5 +877,3 @@ type TfhdBox struct {
 func (b *TfhdBox) parse() error {
 	return nil
 }
-
-// *********************************************************

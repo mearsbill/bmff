@@ -78,8 +78,19 @@ readloop:
 			bx = sb
 			bxFlag = true
 			//f.AllBoxes = append(f.AllBoxes, b)
-		// case pdin
-		//
+			// case pdin
+			//
+		case "emsg":
+			eb := &EmsgBox{box: b}
+			if err := eb.parse(); err != nil {
+				return nil, err
+			}
+			f.Emsg = eb
+			bx = eb
+			bxFlag = true
+			//f.AllBoxes = append(f.AllBoxes, b)
+			// case pdin
+			//
 		case "moov":
 			mb := &MoovBox{box: b}
 			if err := mb.parse(); err != nil {
