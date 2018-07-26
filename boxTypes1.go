@@ -154,21 +154,25 @@ type SidxBox struct {
 func (b *SidxBox) parse() error {
 
 	b.parseFullBoxExt() // consume [0:4] => version and flags
-	var offset int
-
+	offset := 4         // from decoding the FullBoxExt
+	b.reference_ID = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+	offset += 4
+	b.timescale = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+	offset += 4
 	if b.version == 0 {
-		b.earliest_presentation_time = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
-		b.first_offset = uint64(binary.BigEndian.Uint32(b.raw[8:12]))
-		offset = 12
+		b.earliest_presentation_time = uint64(binary.BigEndian.Uint32(b.raw[offset : offset+4]))
+		b.first_offset = uint64(binary.BigEndian.Uint32(b.raw[offset+4 : offset+8]))
+		offset += 8
 	} else if b.version == 1 {
-		b.earliest_presentation_time = binary.BigEndian.Uint64(b.raw[4:12])
-		b.first_offset = binary.BigEndian.Uint64(b.raw[12:20])
-		offset = 20
+		b.earliest_presentation_time = binary.BigEndian.Uint64(b.raw[offset : offset+8])
+		b.first_offset = binary.BigEndian.Uint64(b.raw[offset+8 : offset+16])
+		offset += 16
 	}
 	b.reserved = binary.BigEndian.Uint16(b.raw[offset : offset+2])
 	offset += 2
 	b.reference_count = binary.BigEndian.Uint16(b.raw[offset : offset+2])
 	offset += 2
+	//fmt.Printf("SIDX:  offset:%d raw[0:%d] refCnt:%d \n BOX: %+v, lBox:%+v\n", offset, len(b.raw), b.reference_count, b, b.box)
 	for i := 0; i < int(b.reference_count); i++ {
 		sr := SidxRef{rawDat: b.raw[offset : offset+12]}
 		//copy(b.refs[i].rawDat[:], b.raw[offset:offset+12])
