@@ -3,214 +3,567 @@ package bmff
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/pkg/errors"
 )
 
-// type box struct {
-// 	Tag       *efmt.Ntag // for structured identification and printing
-// 	boxtype   string     // from 4 byte field
-// 	usertype  string     // if boxtype == 'uuid' then this is that uuid
-// 	size      uint32     // size includes all header data starting at firt byte (boxtype)
-// 	largesize int64      // if size == 1 then use this 'largesize' for size
-// 	boxExt_s             // this embedded field embodies the "Full Box extension"... available for all boxes
-// 	raw       []byte
-//
-// 	// container Vars boxes typically don't act as containers and also decoders
-// 	typeNotDecoded star // flag that we don't know how to parse this
-// 	readIdx        int
-// 	writeIdx       int
-// 	subBox         []Box
-// }
-//
-// type boxExt_s struct {
-// 	isFullBox bool // is the ext In use
-// 	version   uint8
-// 	flags     [3]byte
-// }
-//
-// // Generic Box interface
-// type Box interface {
-// 	Type() string
-// 	Size() int64
-// 	Raw() []byte // when subBoxes exist, raw returns an empty array
-//
-// 	GetSubBoxCount() int
-// 	ResetSubBox()
-// 	GetSubBox() (Box, error)
-// 	AddSubBox(Box)
-//
-// 	PrintDetail()
-// 	PrintRecursive()
-// 	Output(io.Writer, int) (writeCount int, err error)
-// }
+// *********************************************************
 
-// func (b *box) Output(w io.Writer, objDepth int) (writeCount int, err error) {
-// 	// basic writer outputs only containers and raw
-// 	// must use proper boxtype for other boxes
-// 	wCount, err := b.outputHeader(w)
-// 	if err != nil {
-// 		return wCount, err
-// 	}
-// 	if objDepth > 0 && b.GetSubBoxCount() != 0 {
-// 		for _, subBox := range b.subBox {
-// 			oC, bErr := subBox.Output(w, objDepth-1)
-// 			if bErr != nil {
-// 				bErr = fmt.Errorf("Got subbox.Output error: %v", err)
-// 				return wCount, bErr
-// 			}
-// 			wCount += oC
-// 		}
-// 		return wCount, nil
-// 	}
-// 	if b.size == 0 {
-// 		// shouln't be possible
-// 		err = fmt.Errorf("We don't support size=0")
-// 		return 0, err
-// 	}
-//
-// 	// output the raw payload...  account for the extended header
-// 	payloadIdx := 0
-// 	if b.isFullBox {
-// 		payloadIdx = 4
-// 	}
-// 	//fmt.Printf("Output P: %+v\n", b.raw)
-// 	writeCnt, err := w.Write(b.raw[payloadIdx:])
-// 	wCount += writeCnt
-// 	//fmt.Printf("Output: %6d ", wCount)
-// 	//b.pThis()
-// 	return wCount, nil
-// }
-
-// ***********************   EmsgBox ***********************
-/*
-aligned(8) class DASHEventMessageBox extends FullBox(‘emsg’, version = 0, flags = 0){
-   string            scheme_id_uri;
-   string            value;
-   unsigned int(32)  timescale;
-   unsigned int(32)  presentation_time_delta;
-   unsigned int(32)  event_duration;
-   unsigned int(32)  id;
-   unsigned int(8)   message_data[];
-} }
-
-DASH:  ISO_23009-1  Section 5.10.3.3.4 Semantics
-scheme_id_uri:
-    Identifies the message scheme. The semantics and syntax of the message_data[] are defined
-    by the owner of the scheme identified. The string may use URN or URL syntax. When a URL is used,
-    it is recommended to also contain a month-date in the form mmyyyy; the assignment of the URL must have been authorized by the owner of the domain name in that URL on or very close to that date. A URL may resolve to an Internet location, and a location that does resolve may store a specification of the message scheme.
-value:
-    Specifies the value for the event. The value space and semantics must be defined by the
-    owners of the scheme identified in the scheme_id_uri field.
-timescale:
-    provides the timescale, in ticks per second, for the time and duration fields within this box
-presentation_time_delta:
-    Provides the Media Presentation time delta of the media presentation time of the event and the
-    earliest presentation time in this segment. If the segment index is present, then the earliest
-    presentation time is determined by the field earliest_presentation_time of the first 'sidx' box.
-    If the segment index is not present, the earliest presentation time is determined as the earliest presentation
-    time of any access unit in the media segment. The timescale is provided in the timescale field
-event_duration:
-    Provides the duration of event in media presentation time. The timescale is indicated in the timescale field.
-    The value 0xFFFF indicates an unknown duration.
-id:
-    A field identifying this instance of the message. Messages with equivalent semantics shall have
-    the same value, i.e. processing of any one event message box with the same id is sufficient.
-message_data:
-    Body of the message, which fills the remainder of the message box. This may be empty depending
-    on the above information. The syntax and semantics of this field must be defined by the owner
-    of the scheme identified in the scheme_id_uri field.
-
-
-
-*/
-type EmsgBox struct { // is a Fullbox, version=0, flags = 9
+type MoovBox struct {
 	*box
-	scheme_id_uri           string
-	value                   string
-	timescale               uint32 // bigEndian
-	presentation_time_delta uint32 // bigEndian
-	event_duration          uint32 // bigEndian
-	id                      uint32 // bigEndian
-	message_data            string
+	MovieHeader *MvhdBox
+	TrackBoxes  []*TrakBox
+	Iods        *IodsBox
+	// Meta *MetaBox
+
 }
 
-// recursive function to print out the box type, size and substructure of a box
-func (b *EmsgBox) PrintDetail() {
-	children := "   "
-	cCount := b.GetSubBoxCount()
-	if cCount > 0 {
-		children = fmt.Sprintf("%2d ", cCount)
-	}
-	fmt.Printf("%-16s %-19s %7d ", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
-	fmt.Printf("SchemeIdUri: %s Value:\"%s\" timescale:%d presentationTimeDelta:%d eventDuration:%d id:%d messageData:%s\n",
-		b.scheme_id_uri, b.value, b.timescale, b.presentation_time_delta, b.event_duration, b.id, b.message_data)
-}
-
-func (b *EmsgBox) PrintRecursive() {
-	var bx Box
-	bx = b
-	bx.PrintDetail()
-	b.ResetSubBox()
-	b1, err := b.GetSubBox()
-	for err == nil {
-		b1.PrintRecursive()
-		b1, err = b.GetSubBox()
-	}
-}
-
-func parseString(input []byte, start int) (result string, next int) {
-	for idx, char := range input[start:] {
-		if char == 0 {
-			return string(input[start : start+idx]), start + idx + 1
+func (b *MoovBox) parse() error {
+	for subBox := range readBoxes(b.raw, b.Tag) {
+		if subBox == nil {
+			return nil
 		}
-	}
-	return "", start
-}
+		switch subBox.boxtype {
+		case "mvhd":
+			b.MovieHeader = &MvhdBox{box: subBox}
+			if err := b.MovieHeader.parse(); err != nil {
+				return err
+			}
+		case "iods":
+			b.Iods = &IodsBox{box: subBox}
+			if err := b.Iods.parse(); err != nil {
+				return err
+			}
+		case "trak":
+			trak := &TrakBox{box: subBox}
+			if err := trak.parse(); err != nil {
+				return err
+			}
 
-// encode null terminated string and return output length
-func encodeString(output []byte, startOffset int, oStr string) (length int) {
-	strLen := len(oStr)
-	copy(output[startOffset:startOffset+strLen], []byte(oStr))
-	output[startOffset+strLen] = 0
-	return strLen + 1
-}
-
-func (b *EmsgBox) parse() error {
-	b.parseFullBoxExt() // consume [0:4] of the raw payload of the base box => version and flags
-	offset := 4
-	b.scheme_id_uri, offset = parseString(b.raw, offset)
-	if b.scheme_id_uri == "" {
-		return fmt.Errorf("In EmsgBox::parse string not terminated\n")
+			b.TrackBoxes = append(b.TrackBoxes, trak)
+		default:
+			fmt.Printf("%s: Unknown Moov(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
+			subBox.typeNotDecoded = true
+		}
+		b.AddSubBox(subBox)
 	}
 
-	b.value, offset = parseString(b.raw, offset)
-	if b.value == "" {
-		return fmt.Errorf("In EmsgBox::parse string not terminated")
-	}
-	b.timescale = binary.BigEndian.Uint32(b.raw[offset : offset+4])
-	b.presentation_time_delta = binary.BigEndian.Uint32(b.raw[offset+4 : offset+8])
-	b.event_duration = binary.BigEndian.Uint32(b.raw[offset+8 : offset+12])
-	b.id = binary.BigEndian.Uint32(b.raw[offset+12 : offset+16])
-	b.message_data = string(b.raw[offset+16:])
 	return nil
 }
 
-func (b *EmsgBox) Encode() (encodeSize int, er error) {
-	estRawSize := len(b.scheme_id_uri) + len(b.value) + len(b.message_data) + 2 /* for null termination*/ + 16 /* 4 *uint32 */ + 4 /* fullBoxext */
-	fmt.Printf("estRawSize:%d  uri:%d val:%d messg:%d \n", estRawSize, len(b.scheme_id_uri), len(b.value), len(b.message_data))
-	b.raw = make([]byte, estRawSize, estRawSize+2)
-	offset := b.EncodeFullHeaderExt()
-	offset += encodeString(b.raw, offset, b.scheme_id_uri) // returns length including null
-	offset += encodeString(b.raw, offset, b.value)         // returns length including null
-	binary.BigEndian.PutUint32(b.raw[offset:offset+4], b.timescale)
-	offset += 4
-	binary.BigEndian.PutUint32(b.raw[offset:offset+4], b.presentation_time_delta)
-	offset += 4
-	binary.BigEndian.PutUint32(b.raw[offset:offset+4], b.event_duration)
-	offset += 4
-	binary.BigEndian.PutUint32(b.raw[offset:offset+4], b.id)
-	offset += 4
-	offset += copy(b.raw[offset:], []byte(b.message_data)) // no null termination for last string at end of message
-	b.raw = b.raw[0:offset]
-	return offset, nil
+// *********  Meta Data container ************************************************
+type MdatBox struct {
+	*box
+}
 
+func (b *MdatBox) parse() error {
+	return nil
+}
+
+// *********************************************************
+
+type TrakBox struct {
+	*box
+	Tkhd *TkhdBox
+	Tref *TrefBox
+	Mdia *MdiaBox
+}
+
+func (b *TrakBox) parse() error {
+	for subBox := range readBoxes(b.raw, b.Tag) {
+		if subBox == nil {
+			break
+		}
+
+		switch subBox.boxtype {
+		case "tkhd":
+			header := &TkhdBox{box: subBox}
+			if err := header.parse(); err != nil {
+				return err
+			}
+			b.Tkhd = header
+		case "mdia":
+			mdia := &MdiaBox{box: subBox}
+			if err := mdia.parse(); err != nil {
+				return err
+			}
+			b.Mdia = mdia
+		case "tref":
+			tref := &TrefBox{box: subBox}
+			if err := tref.parse(); err != nil {
+				return err
+			}
+			b.Tref = tref
+		default:
+			fmt.Printf("Unknown Trak SubType: %s\n", subBox.Type())
+			subBox.typeNotDecoded = true
+
+		}
+		b.AddSubBox(subBox)
+	}
+	return nil
+}
+
+// *********************************************************
+
+type MdiaBox struct {
+	*box
+	Mdhd *MdhdBox
+	Hdlr *HdlrBox
+	Minf *MinfBox
+}
+
+func (b *MdiaBox) parse() error {
+	for subBox := range readBoxes(b.raw, b.Tag) {
+		if subBox == nil {
+			break
+		}
+
+		switch subBox.boxtype {
+		case "mdhd":
+			mdhd := MdhdBox{box: subBox}
+			if err := mdhd.parse(); err != nil {
+				return err
+			}
+			b.Mdhd = &mdhd
+		case "hdlr":
+			hdlr := HdlrBox{box: subBox}
+			if err := hdlr.parse(); err != nil {
+				return err
+			}
+			b.Hdlr = &hdlr
+		case "minf":
+			minf := MinfBox{box: subBox}
+			if err := minf.parse(); err != nil {
+				return err
+			}
+			b.Minf = &minf
+		default:
+			fmt.Printf("Unknown Mdia SubType: %s\n", subBox.Type())
+			subBox.typeNotDecoded = true
+
+		}
+		b.AddSubBox(subBox)
+	}
+	return nil
+}
+
+// *********************************************************
+
+func langString(langCode uint16) string {
+	b0 := (langCode >> 10) + 0x60
+	b1 := ((langCode >> 5) & 0x3f) + 0x60
+	b2 := ((langCode) & 0x3f) + 0x60
+	return string([]byte{byte(b0), byte(b1), byte(b2)})
+	//fmt.Printf("langCode = 0x%x langStr = %s\n",b.langCode, b.langStr)
+}
+
+type MdhdBox struct {
+	*box
+	CreationTime     uint64
+	ModificationTime uint64
+	TimeScale        uint32
+	Duration         uint64
+	langCode         uint16
+	langStr          string
+}
+
+// <Media Header Box
+func (b *MdhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	// Fullbox payload begins at offset 4
+
+	var offset int
+	if b.version == 0 {
+		b.CreationTime = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
+		b.ModificationTime = uint64(binary.BigEndian.Uint32(b.raw[8:12]))
+		b.TimeScale = binary.BigEndian.Uint32(b.raw[12:16])
+		b.Duration = uint64(binary.BigEndian.Uint32(b.raw[16:20]))
+		offset = 20
+	} else if b.version == 1 {
+		b.CreationTime = binary.BigEndian.Uint64(b.raw[4:12])
+		b.ModificationTime = binary.BigEndian.Uint64(b.raw[12:20])
+		b.TimeScale = binary.BigEndian.Uint32(b.raw[20:24])
+		b.Duration = binary.BigEndian.Uint64(b.raw[24:32])
+		offset = 32
+	}
+
+	//b.langCode = binary.BigEndian.Uint16(b.raw[offset : offset+2])
+	b.langCode = (uint16(b.raw[offset])<<8 | uint16(b.raw[offset+1]))
+	b.langStr = langString(b.langCode)
+
+	return nil
+}
+
+// *********************************************************
+
+type HdlrBox struct {
+	*box
+	// pre-defined 0 (32)
+	handlerType uint32
+	name        string
+	// reserved 0 3*(32)
+}
+
+func (b *HdlrBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	// Fullbox payload begins at offset 4
+	// skip over Predefined (4 bytes)
+	b.handlerType = binary.BigEndian.Uint32(b.raw[8:12])
+	return nil
+}
+
+// *********************************************************
+
+// exactly 1 minf required in mdia
+type MinfBox struct {
+	*box
+	// no decodes... just sub boxes
+	Vmhd *VmhdBox
+	Smhd *SmhdBox
+	Hmhd *HmhdBox
+	Nmhd *NmhdBox
+	Dinf *DinfBox
+	Stbl *StblBox
+}
+
+func (b *MinfBox) parse() error {
+	for subBox := range readBoxes(b.raw, b.Tag) {
+		if subBox == nil {
+			break
+		}
+
+		switch subBox.boxtype {
+		case "vmhd":
+			vmhd := VmhdBox{box: subBox}
+			if err := vmhd.parse(); err != nil {
+				return err
+			}
+			b.Vmhd = &vmhd
+		case "smhd":
+			smhd := SmhdBox{box: subBox}
+			if err := smhd.parse(); err != nil {
+				return err
+			}
+			b.Smhd = &smhd
+		case "hmhd":
+
+			hmhd := HmhdBox{box: subBox}
+			if err := hmhd.parse(); err != nil {
+				return err
+			}
+			b.Hmhd = &hmhd
+		case "nmhd":
+			nmhd := NmhdBox{box: subBox}
+			if err := nmhd.parse(); err != nil {
+				return err
+			}
+			b.Nmhd = &nmhd
+		case "dinf":
+			dinf := DinfBox{box: subBox}
+			if err := dinf.parse(); err != nil {
+				return err
+			}
+			b.Dinf = &dinf
+		case "stbl":
+			stbl := StblBox{box: subBox}
+			if err := stbl.parse(); err != nil {
+				return err
+			}
+			b.Stbl = &stbl
+		default:
+			fmt.Printf("Unknown Minf SubType: %s\n", subBox.Type())
+			subBox.typeNotDecoded = true
+
+		}
+		b.AddSubBox(subBox)
+	}
+	return nil
+}
+
+//
+// *********************************************************
+
+// Video Media Header
+type VmhdBox struct {
+	*box
+	graphicsmode uint16
+	opcolor      [3]uint16
+}
+
+func (b *VmhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+	//no decoding required
+	return nil
+}
+
+// *********************************************************
+
+// Sound Media Header
+type SmhdBox struct {
+	*box
+	balance  Int8_8
+	reserved uint16
+}
+
+func (b *SmhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	//no decoding required
+	return nil
+}
+
+// *********************************************************
+
+// HintMediaHeader
+type HmhdBox struct {
+	*box
+	maxPDUsize uint16
+	avgPDUsize uint16
+	maxbitrate uint32
+	avgbitrate uint32
+	reserved   uint32
+}
+
+func (b *HmhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+	b.maxPDUsize = binary.BigEndian.Uint16(b.raw[4:6])
+	b.avgPDUsize = binary.BigEndian.Uint16(b.raw[6:8])
+	b.maxbitrate = binary.BigEndian.Uint32(b.raw[8:12])
+	b.avgbitrate = binary.BigEndian.Uint32(b.raw[12:16])
+	// reserved not decoded
+
+	return nil
+}
+
+// Null Media Header
+type NmhdBox struct {
+	*box
+}
+
+func (b *NmhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	//no decoding required
+	return nil
+}
+
+// Data Information box, container
+type DinfBox struct {
+	*box
+	balance  Int8_8
+	reserved uint16
+}
+
+func (b *DinfBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	//no decoding required
+	return nil
+}
+
+// Data Information box, container
+type StblBox struct {
+	*box
+}
+
+func (b *StblBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	//no decoding required
+	return nil
+}
+
+// *********************************************************
+
+// exactly 0 or 1 udta in moov or trak
+// User data box
+type UdtaBox struct {
+	*box
+	Cprt *CprtBox
+}
+
+func (b *UdtaBox) parse() error {
+	for subBox := range readBoxes(b.raw, b.Tag) {
+		if subBox == nil {
+			break
+		}
+
+		switch subBox.boxtype {
+		case "cprt":
+			cprt := CprtBox{box: subBox}
+			if err := cprt.parse(); err != nil {
+				return err
+			}
+			b.Cprt = &cprt
+		default:
+			fmt.Printf("Unknown Udta SubType: %s\n", subBox.Type())
+			subBox.typeNotDecoded = true
+
+		}
+		b.AddSubBox(subBox)
+	}
+	return nil
+}
+
+// HintMediaHeader
+type CprtBox struct {
+	*box
+	langCode uint16
+	langStr  string
+	notice   string
+}
+
+func (b *CprtBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+
+	offset := 4
+	//b.langCode = binary.BigEndian.Uint16(b.raw[offset : offset+2])
+	b.langCode = (uint16(b.raw[offset])<<8 | uint16(b.raw[offset+1]))
+	b.langStr = langString(b.langCode)
+	offset += 2
+
+	// null terminated string in UTF-8 or UTF-16
+	// if UTF-16 starts with BYTE_ORDER_MARK (0xfeff)
+	b.notice = string(b.raw[offset:])
+
+	return nil
+}
+
+// *********************************************************
+
+type MvhdBox struct {
+	*box
+	CreationTime     uint64
+	ModificationTime uint64
+	TimeScale        uint32
+	Duration         uint64
+	NextTrackID      uint32
+	Rate             Uint16_16
+	Volume           Uint8_8
+	Reserved         []byte
+	Matrix           [9]int32
+	Predefined       []byte
+}
+
+func (b *MvhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+	var offset int
+	if b.version == 0 {
+		b.CreationTime = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
+		b.ModificationTime = uint64(binary.BigEndian.Uint32(b.raw[8:12]))
+		b.TimeScale = binary.BigEndian.Uint32(b.raw[12:16])
+		b.Duration = uint64(binary.BigEndian.Uint32(b.raw[16:20]))
+		offset = 20
+	} else if b.version == 1 {
+		b.CreationTime = binary.BigEndian.Uint64(b.raw[4:12])
+		b.ModificationTime = binary.BigEndian.Uint64(b.raw[12:20])
+		b.TimeScale = binary.BigEndian.Uint32(b.raw[20:24])
+		b.Duration = binary.BigEndian.Uint64(b.raw[24:32])
+		offset = 32
+	}
+
+	if err := b.Rate.UnmarshalBinary(b.raw[offset : offset+4]); err != nil {
+		return errors.Wrap(err, "failed to get rate")
+	}
+
+	if err := b.Volume.UnmarshalBinary(b.raw[offset+4 : offset+6]); err != nil {
+		return errors.Wrap(err, "failed to get volume")
+	}
+
+	b.Reserved = b.raw[offset+6 : offset+16]
+	offset += 16
+	for i := 0; i < 9; i++ {
+		b.Matrix[i] = int32(binary.BigEndian.Uint32(b.raw[offset+i : offset+i+4]))
+	}
+	offset += 36
+
+	b.Predefined = b.raw[offset : offset+24]
+	b.NextTrackID = binary.BigEndian.Uint32(b.raw[offset+24 : offset+28])
+	return nil
+}
+
+type IodsBox struct {
+	*box
+}
+
+func (b *IodsBox) parse() error {
+	return nil
+}
+
+type TkhdBox struct {
+	*box
+	CreationTime     uint64
+	ModificationTime uint64
+	TrackID          uint32
+	Duration         uint64
+	Layer            int16
+	AlternateGroup   int16
+	Volume           int16
+	Matrix           [9]int32
+	Width            Uint16_16
+	Height           Uint16_16
+}
+
+func (b *TkhdBox) parse() error {
+	b.parseFullBoxExt() // consume [0:4] => version and flags
+	var offset int
+	if b.version == 0 {
+		b.CreationTime = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
+		b.ModificationTime = uint64(binary.BigEndian.Uint32(b.raw[8:12]))
+		b.TrackID = binary.BigEndian.Uint32(b.raw[12:16])
+		// 16:20 reserved
+		b.Duration = uint64(binary.BigEndian.Uint32(b.raw[20:24]))
+		offset = 24
+	} else if b.version == 1 {
+		b.CreationTime = binary.BigEndian.Uint64(b.raw[4:12])
+		b.ModificationTime = binary.BigEndian.Uint64(b.raw[12:20])
+		b.TrackID = binary.BigEndian.Uint32(b.raw[20:24])
+		// 24:28 reserved
+		b.Duration = binary.BigEndian.Uint64(b.raw[28:36])
+		offset = 36
+	}
+	offset += 8 // reserved bytes
+	b.Layer = int16(binary.BigEndian.Uint16(b.raw[offset : offset+2]))
+	b.AlternateGroup = int16(binary.BigEndian.Uint16(b.raw[offset+2 : offset+4]))
+	b.Volume = int16(binary.BigEndian.Uint16(b.raw[offset+4 : offset+6]))
+	offset += 8 // previous bytes + 2 reserved
+
+	for i := 0; i < 9; i++ {
+		b.Matrix[i] = int32(binary.BigEndian.Uint32(b.raw[offset+i : offset+i+4]))
+	}
+	offset += 36
+	b.Width = Uint16_16(binary.BigEndian.Uint32(b.raw[offset : offset+4]))
+	b.Height = Uint16_16(binary.BigEndian.Uint32(b.raw[offset+4 : offset+8]))
+	return nil
+}
+
+// ******** Track reference containter
+
+type TrefBox struct {
+	*box
+	TypeBoxes []*TrefTypeBox
+}
+
+func (b *TrefBox) parse() error {
+	for subBox := range readBoxes(b.raw, b.Tag) {
+		if subBox == nil {
+			break
+		}
+		t := TrefTypeBox{box: subBox}
+		for i := 0; i < len(t.raw); i += 4 {
+			t.TrackIDs = append(t.TrackIDs, binary.BigEndian.Uint32(t.raw[i:i+4]))
+
+		}
+		b.TypeBoxes = append(b.TypeBoxes, &t)
+		b.AddSubBox(subBox)
+	}
+	return nil
+}
+
+type TrefTypeBox struct {
+	*box
+	TrackIDs []uint32
 }

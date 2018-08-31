@@ -97,12 +97,16 @@ readloop:
 				return nil, err
 			}
 			f.Moov = mb
+			bx = mb
+			bxFlag = true
 		case "moof":
 			moof := &MoofBox{box: b}
 			if err := moof.parse(); err != nil {
 				return nil, err
 			}
 			f.Moof = moof
+			bx = moof
+			bxFlag = true
 		// case mfra
 		//
 		case "mdat":

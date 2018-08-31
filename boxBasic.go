@@ -83,7 +83,7 @@ func (b *box) PrintDetail() {
 	if cCount > 0 {
 		children = fmt.Sprintf("%2d ", cCount)
 	}
-	fmt.Printf("%-16s %-19s %7d\n", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
+	fmt.Printf("%-16s %-19s %7d\n", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String()+"^", b.size)
 }
 
 func (b *box) PrintRecursive() {
