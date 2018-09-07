@@ -160,24 +160,24 @@ func TestSmallFile(t *testing.T) {
 			dst:      filepath.Join("testdata", "01_simple_output.mp4"),
 			maxDepth: 6,
 		},
-		{
-			name:     "Test Read/Write Matching depth=1",
-			src:      "/Users/bmears/videoClips/seaworld.mp4",
-			dst:      "/tmp/searworld_out.mp4",
-			maxDepth: 6,
-		},
-		{
-			name:     "Test Read/Write Matching depth=1",
-			src:      "/Users/bmears/videoClips/chunk_ctaudio_cfm4s_ridp0aa0br88560_cs46262195568_w1932408732_mpd.m4s",
-			dst:      "/tmp/chunk_ctaudio_cfm4s_ridp0aa0br88560_cs46262195568_w1932408732_mpd_out.mp4",
-			maxDepth: 6,
-		},
-		{
-			name:     "Test Read/Write Matching depth=1",
-			src:      "/Users/bmears/videoClips/chunk_ctvideo_cfm4s_ridp0va0br41991_cs86746737600_w1932408732_mpd.m4s",
-			dst:      "/tmp/chunk_ctvideo_cfm4s_ridp0va0br41991_cs86746737600_w1932408732_mpd_out.mp4",
-			maxDepth: 6,
-		},
+		// {
+		// 	name:     "Test Read/Write Matching depth=1",
+		// 	src:      "/Users/bmears/videoClips/seaworld.mp4",
+		// 	dst:      "/tmp/searworld_out.mp4",
+		// 	maxDepth: 6,
+		// },
+		// {
+		// 	name:     "Test Read/Write Matching depth=1",
+		// 	src:      "/Users/bmears/videoClips/chunk_ctaudio_cfm4s_ridp0aa0br88560_cs46262195568_w1932408732_mpd.m4s",
+		// 	dst:      "/tmp/chunk_ctaudio_cfm4s_ridp0aa0br88560_cs46262195568_w1932408732_mpd_out.mp4",
+		// 	maxDepth: 6,
+		// },
+		// {
+		// 	name:     "Test Read/Write Matching depth=1",
+		// 	src:      "/Users/bmears/videoClips/chunk_ctvideo_cfm4s_ridp0va0br41991_cs86746737600_w1932408732_mpd.m4s",
+		// 	dst:      "/tmp/chunk_ctvideo_cfm4s_ridp0va0br41991_cs86746737600_w1932408732_mpd_out.mp4",
+		// 	maxDepth: 6,
+		// },
 	}
 	// use these vars across tests ... some are carried between sequential tests
 	var bF0 *File_s

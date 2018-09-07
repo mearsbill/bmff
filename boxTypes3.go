@@ -3,6 +3,7 @@ package bmff
 import (
 	"encoding/binary"
 	"fmt"
+	"klog"
 )
 
 // *******  Movie Fragment Box **************************************************
@@ -15,6 +16,7 @@ type MoofBox struct {
 }
 
 func (b *MoofBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			return nil
@@ -22,31 +24,31 @@ func (b *MoofBox) parse() error {
 		switch subBox.boxtype {
 		case "mfhd":
 			b.Mfhd = &MfhdBox{box: subBox}
-			if err := b.Mfhd.parse(); err != nil {
-				return err
+			if err1 := b.Mfhd.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.AddSubBox(b.Mfhd)
 		case "meta":
 			b.Meta = &MetaBox{box: subBox}
-			if err := b.Meta.parse(); err != nil {
-				return err
+			if err1 := b.Meta.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.AddSubBox(b.Meta)
 		case "traf":
 			traf := &TrafBox{box: subBox}
-			if err := traf.parse(); err != nil {
-				return err
+			if err1 := traf.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Traf = append(b.Traf, traf)
 			b.AddSubBox(traf)
 		default:
-			fmt.Printf("%s: Unknown Moof subtype(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
+			kl.KWarn(klog.KlrNotHandled, "%s: Unknown Moof subtype(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
 			subBox.typeNotDecoded = true
 			b.AddSubBox(subBox)
 		}
 	}
 
-	return nil
+	return err
 }
 
 // specific funciton for this typwe
@@ -93,9 +95,15 @@ func (b *MfhdBox) PrintRecursive() {
 	b.PrintDetail()
 	b.ResetSubBox()
 	b1, err := b.GetSubBox()
+	if err != nil {
+		return // kl.KError(KlrWrapper, "%v", err)
+	}
 	for err == nil {
 		b1.PrintRecursive()
 		b1, err = b.GetSubBox()
+		if err != nil {
+			return // kl.KError(KlrWrapper, "%v", err)
+		}
 	}
 }
 
@@ -123,6 +131,7 @@ type TrafBox struct {
 }
 
 func (b *TrafBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			break
@@ -131,40 +140,40 @@ func (b *TrafBox) parse() error {
 		switch subBox.boxtype {
 		case "tfhd":
 			header := &TfhdBox{box: subBox}
-			if err := header.parse(); err != nil {
-				return err
+			if err1 := header.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Tfhd = header
 			b.AddSubBox(header)
 		case "trun":
 			header := &TrunBox{box: subBox}
-			if err := header.parse(); err != nil {
-				return err
+			if err1 := header.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Trun = header
 			b.AddSubBox(header)
 		case "tfdt":
 			header := &TfdtBox{box: subBox}
-			if err := header.parse(); err != nil {
-				return err
+			if err1 := header.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Tfdt = header
 			b.AddSubBox(header)
 		case "meta":
 			meta := &MetaBox{box: subBox}
-			if err := meta.parse(); err != nil {
-				return err
+			if err1 := meta.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Meta = meta
 			b.AddSubBox(meta)
 		default:
-			fmt.Printf("Unknown Traf SubType: %s\n", subBox.Type())
+			err = kl.KWarn(klog.KlrNotHandled, "Unknown Traf SubType: %s\n", subBox.Type())
 			b.AddSubBox(subBox)
 			subBox.typeNotDecoded = true
 
 		}
 	}
-	return nil
+	return err
 }
 func (b *TrafBox) PrintDetail() {
 	children := "   "
@@ -229,41 +238,41 @@ func (b *TfhdBox) parse() error {
 	offset := 4         // from decoding the FullBoxExt - version not used
 	rawLen := len(b.raw)
 	if rawLen-offset < 4 {
-		return fmt.Errorf("ran out of bits")
+		return kl.KWarn(klog.KlrRanOutOfData, "TfhdBox.parse ran out of bits")
 	}
 	b.track_ID = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 	offset += 4 // from decoding the FullBoxExt - version not used
 	if (b.flags[2] & 0x01) != 0 {
 		if rawLen-offset < 8 {
-			return fmt.Errorf("ran out of bits")
+			return kl.KWarn(klog.KlrRanOutOfData, "TfhdBox.parse ran out of bits")
 		}
 		b.base_data_offset = binary.BigEndian.Uint64(b.raw[offset : offset+8])
 		offset += 8
 	}
 	if (b.flags[2] & 0x02) != 0 {
 		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+			return kl.KWarn(klog.KlrRanOutOfData, "TfhdBox.parse ran out of bits")
 		}
 		b.sample_description_index = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 		offset += 4
 	}
 	if (b.flags[2] & 0x08) != 0 {
 		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+			return kl.KWarn(klog.KlrRanOutOfData, "TfhdBox.parse ran out of bits")
 		}
 		b.default_sample_duration = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 		offset += 4
 	}
 	if (b.flags[2] & 0x10) != 0 {
 		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+			return kl.KWarn(klog.KlrRanOutOfData, "TfhdBox.parse ran out of bits")
 		}
 		b.default_sample_size = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 		offset += 4
 	}
 	if (b.flags[2] & 0x20) != 0 {
 		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+			return kl.KWarn(klog.KlrRanOutOfData, "TfhdBox.parse ran out of bits")
 		}
 		b.default_sample_flags = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 		offset += 4
@@ -301,7 +310,7 @@ type TrunSample struct {
 type TrunBox struct {
 	*box               // extended full box with version and flags
 	sample_count       uint32
-	data_offset        int32
+	data_offset        int32 // option (Flag bit)
 	first_sample_flags uint32
 	rSamples           []TrunSample
 }
@@ -312,73 +321,111 @@ func (b *TrunBox) parse() error {
 	rawLen := len(b.raw)
 
 	if rawLen-offset < 4 {
-		return fmt.Errorf("ran out of bits")
+		return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bits fetching sample_count")
 	}
 	b.sample_count = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 	offset += 4
-	if b.sample_count == 0 {
-		return nil
+
+	if (b.flags[2] & 0x01) != 0 { // data-offset-present flag
+		if rawLen-offset < 4 {
+			return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bits fetching data_offset")
+		}
+		b.data_offset = int32(binary.BigEndian.Uint32(b.raw[offset : offset+4]))
+		//kl.KTrace("TrunBox.parse: data_offset is present and is %d", b.data_offset)
+		offset += 4 // from decoding the FullBoxExt - version not used
+	}
+	first_sample_flags_present := (b.flags[2] & 0x04) != 0
+	if first_sample_flags_present {
+		// when present indicaates:
+		// - first_sample_flags is present in stream
+		// - sample flags NOT present in loop
+		if rawLen-offset < 4 {
+			return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bits fetching first_sample_flags")
+		}
+		b.first_sample_flags = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+		offset += 4 // from decoding the FullBoxExt - version not used
 	}
 
-	if rawLen-offset < 4 {
-		return fmt.Errorf("ran out of bits")
-	}
-	b.data_offset = int32(binary.BigEndian.Uint32(b.raw[offset : offset+4]))
-	offset += 4 // from decoding the FullBoxExt - version not used
-
-	if rawLen-offset < 4 {
-		return fmt.Errorf("ran out of bits")
-	}
-	b.first_sample_flags = binary.BigEndian.Uint32(b.raw[offset : offset+4])
-	offset += 4 // from decoding the FullBoxExt - version not used
+	// flags for in-loop data presenr
+	sample_duration_present := (b.flags[1] & 0x01) != 0
+	sample_size_present := (b.flags[1] & 0x02) != 0
+	sample_flags_present := ((b.flags[1] & 0x04) != 0) && (!first_sample_flags_present)
+	sample_composition_time_offset_present := (b.flags[1] & 0x08) != 0
 
 	//for idx := 0; idx < int(b.sample_count); idx++ {
-	for idx := 0; idx < 59; idx++ {
-		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+	for idx := 0; idx < int(b.sample_count); idx++ {
+		sd := uint32(0)
+		if sample_duration_present {
+			if rawLen-offset < 4 {
+				return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bits fetching sample_duration (%d of %d)", idx, b.sample_count)
+			}
+			sd = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+			offset += 4 // from decoding the FullBoxExt - version not used
 		}
-		r1 := binary.BigEndian.Uint32(b.raw[offset : offset+4])
-		offset += 4 // from decoding the FullBoxExt - version not used
 
-		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+		ss := uint32(0)
+		if sample_size_present {
+			if rawLen-offset < 4 {
+				return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bits fetching sample_size in loop (%d of %d)", idx, b.sample_count)
+			}
+			ss = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+			offset += 4 // from decoding the FullBoxExt - version not used
 		}
-		r2 := binary.BigEndian.Uint32(b.raw[offset : offset+4])
-		offset += 4
+		local_sfp := sample_flags_present && !first_sample_flags_present
+		sf := uint32(0)
+		if local_sfp {
+			if rawLen-offset < 4 {
+				return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bits fetching sample_flags in loop (%d of %d)", idx, b.sample_count)
+			}
+			sf = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+			offset += 4 // from decoding the FullBoxExt - version not used
+		} else if (idx == 0) && first_sample_flags_present {
+			sf = b.first_sample_flags
+		}
 
-		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
+		scto := uint32(0)
+		if sample_composition_time_offset_present {
+			if rawLen-offset < 4 {
+				return kl.KWarn(klog.KlrRanOutOfData, "TrunBox.parse ran out of bytes(need 4 have %d) fetching sample_composition_time_offset in loop (%d of %d)", rawLen-offset, idx, b.sample_count)
+			}
+			scto = binary.BigEndian.Uint32(b.raw[offset : offset+4])
+			offset += 4 // from decoding the FullBoxExt - version not used
 		}
-		r3 := binary.BigEndian.Uint32(b.raw[offset : offset+4])
-		offset += 4
-
-		if rawLen-offset < 4 {
-			return fmt.Errorf("ran out of bits")
-		}
-		r4 := binary.BigEndian.Uint32(b.raw[offset : offset+4])
-		offset += 4
-		fmt.Printf("offset=%d\n", rawLen-offset)
-
-		if r1 == r2 || r3 == r4 {
-			fmt.Printf("Hello WOrld\n")
-		}
-		// ts := TrunSample{r1, r2, r3, r4}
-		// if ts.sample_flags == 1 {
-		// 	fmt.Printf("Hello world")
+		// if sd == ss || sf == scto {
+		// 	fmt.Printf("Hello WOrld\n")
 		// }
-		// 	b.rSamples = append(b.rSamples, ts)
+		ts := TrunSample{sample_duration: sd, sample_size: ss, sample_flags: sf, sample_composition_time_offset: scto}
+		b.rSamples = append(b.rSamples, ts)
 	}
-	fmt.Printf("======================\n\n")
 	return nil
 }
 
 func (b *TrunBox) PrintDetail() {
 	children := "   "
 	fmt.Printf("%-16s %-19s %7d ", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
-	fmt.Printf("smplCnt:%d dataOffset:%d firstSampleFlags:0x%08x ", b.sample_count, b.data_offset, b.first_sample_flags)
-	fmt.Printf("%-16s %-19s %7s ", "", "", "")
-	//	fmt.Printf("baseMediaDecodeTime: %d ", 123)
+	fmt.Printf("flg:%02x%02x%02x smplCnt:%d dataOffset:%d firstSampleFlags:0x%08x ", b.flags[0], b.flags[1], b.flags[2],
+		b.sample_count, b.data_offset, b.first_sample_flags)
 	fmt.Printf("\n")
+	if false {
+		localCount := int(b.sample_count)
+		if false {
+			localCount = 6
+		}
+		if b.sample_count > 0 {
+			fmt.Printf("%-16s %-9s %17s ", "", "", "Sample Recs")
+			for idx := 0; idx < localCount; idx++ {
+				fmt.Printf("%d: Dur:%d Siz:%d Flags:0x%x CompositionTimeOffs:%d",
+					idx, b.rSamples[idx].sample_duration, b.rSamples[idx].sample_size, b.rSamples[idx].sample_flags, b.rSamples[idx].sample_composition_time_offset)
+				fmt.Printf("\n")
+				if idx != localCount-1 {
+					fmt.Printf("%-16s %-19s %7s ", "", "", "")
+				}
+			}
+			if localCount != int(b.sample_count) {
+				fmt.Printf("%-16s %-19s %7s     ........\n", "", "", "")
+			}
+		}
+	}
 
 }
 func (b *TrunBox) PrintRecursive() {

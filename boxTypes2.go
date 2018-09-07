@@ -2,9 +2,7 @@ package bmff
 
 import (
 	"encoding/binary"
-	"fmt"
-
-	"github.com/pkg/errors"
+	"klog"
 )
 
 // *********************************************************
@@ -19,6 +17,7 @@ type MoovBox struct {
 }
 
 func (b *MoovBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			return nil
@@ -26,29 +25,28 @@ func (b *MoovBox) parse() error {
 		switch subBox.boxtype {
 		case "mvhd":
 			b.MovieHeader = &MvhdBox{box: subBox}
-			if err := b.MovieHeader.parse(); err != nil {
-				return err
+			if err1 := b.MovieHeader.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 		case "iods":
 			b.Iods = &IodsBox{box: subBox}
-			if err := b.Iods.parse(); err != nil {
-				return err
+			if err1 := b.Iods.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 		case "trak":
 			trak := &TrakBox{box: subBox}
-			if err := trak.parse(); err != nil {
-				return err
+			if err1 := trak.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
-
 			b.TrackBoxes = append(b.TrackBoxes, trak)
 		default:
-			fmt.Printf("%s: Unknown Moov(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
+			err = kl.KWarn(klog.KlrNotHandled, "%s: Unknown Moov(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
 			subBox.typeNotDecoded = true
 		}
 		b.AddSubBox(subBox)
 	}
 
-	return nil
+	return err
 }
 
 // *********  Meta Data container ************************************************
@@ -70,6 +68,7 @@ type TrakBox struct {
 }
 
 func (b *TrakBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			break
@@ -78,30 +77,30 @@ func (b *TrakBox) parse() error {
 		switch subBox.boxtype {
 		case "tkhd":
 			header := &TkhdBox{box: subBox}
-			if err := header.parse(); err != nil {
-				return err
+			if err1 := header.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Tkhd = header
 		case "mdia":
 			mdia := &MdiaBox{box: subBox}
-			if err := mdia.parse(); err != nil {
-				return err
+			if err1 := mdia.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Mdia = mdia
 		case "tref":
 			tref := &TrefBox{box: subBox}
-			if err := tref.parse(); err != nil {
-				return err
+			if err1 := tref.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Tref = tref
 		default:
-			fmt.Printf("Unknown Trak SubType: %s\n", subBox.Type())
+			err = kl.KWarn(klog.KlrWrapper, "%s: Unknown Trak(%s) SubType: %s\n", subBox.Tag.String(), b.Tag.String(), subBox.Type())
 			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
 	}
-	return nil
+	return err
 }
 
 // *********************************************************
@@ -114,6 +113,7 @@ type MdiaBox struct {
 }
 
 func (b *MdiaBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			break
@@ -122,30 +122,30 @@ func (b *MdiaBox) parse() error {
 		switch subBox.boxtype {
 		case "mdhd":
 			mdhd := MdhdBox{box: subBox}
-			if err := mdhd.parse(); err != nil {
-				return err
+			if err1 := mdhd.parse(); err != nil {
+				return kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Mdhd = &mdhd
 		case "hdlr":
 			hdlr := HdlrBox{box: subBox}
-			if err := hdlr.parse(); err != nil {
-				return err
+			if err1 := hdlr.parse(); err != nil {
+				return kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Hdlr = &hdlr
 		case "minf":
 			minf := MinfBox{box: subBox}
-			if err := minf.parse(); err != nil {
-				return err
+			if err1 := minf.parse(); err != nil {
+				return kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Minf = &minf
 		default:
-			fmt.Printf("Unknown Mdia SubType: %s\n", subBox.Type())
 			subBox.typeNotDecoded = true
+			err = kl.KWarn(klog.KlrNotHandled, "Unknown MdiaBox SubType: %s\n", subBox.Type())
 
 		}
 		b.AddSubBox(subBox)
 	}
-	return nil
+	return err
 }
 
 // *********************************************************
@@ -230,6 +230,7 @@ type MinfBox struct {
 }
 
 func (b *MinfBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			break
@@ -238,49 +239,48 @@ func (b *MinfBox) parse() error {
 		switch subBox.boxtype {
 		case "vmhd":
 			vmhd := VmhdBox{box: subBox}
-			if err := vmhd.parse(); err != nil {
-				return err
+			if err1 := vmhd.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Vmhd = &vmhd
 		case "smhd":
 			smhd := SmhdBox{box: subBox}
-			if err := smhd.parse(); err != nil {
-				return err
+			if err1 := smhd.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Smhd = &smhd
 		case "hmhd":
-
 			hmhd := HmhdBox{box: subBox}
-			if err := hmhd.parse(); err != nil {
-				return err
+			if err1 := hmhd.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Hmhd = &hmhd
 		case "nmhd":
 			nmhd := NmhdBox{box: subBox}
-			if err := nmhd.parse(); err != nil {
-				return err
+			if err1 := nmhd.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Nmhd = &nmhd
 		case "dinf":
 			dinf := DinfBox{box: subBox}
-			if err := dinf.parse(); err != nil {
-				return err
+			if err1 := dinf.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Dinf = &dinf
 		case "stbl":
 			stbl := StblBox{box: subBox}
-			if err := stbl.parse(); err != nil {
-				return err
+			if err1 := stbl.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Stbl = &stbl
 		default:
-			fmt.Printf("Unknown Minf SubType: %s\n", subBox.Type())
+			err = kl.KWarn(klog.KlrNotHandled, "Unknown Minf SubType: %s\n", subBox.Type())
 			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
 	}
-	return nil
+	return err
 }
 
 //
@@ -386,6 +386,7 @@ type UdtaBox struct {
 }
 
 func (b *UdtaBox) parse() error {
+	var err error
 	for subBox := range readBoxes(b.raw, b.Tag) {
 		if subBox == nil {
 			break
@@ -394,18 +395,18 @@ func (b *UdtaBox) parse() error {
 		switch subBox.boxtype {
 		case "cprt":
 			cprt := CprtBox{box: subBox}
-			if err := cprt.parse(); err != nil {
-				return err
+			if err1 := cprt.parse(); err1 != nil {
+				err = kl.KWarn(klog.KlrWrapper, "%v", err1)
 			}
 			b.Cprt = &cprt
 		default:
-			fmt.Printf("Unknown Udta SubType: %s\n", subBox.Type())
+			err = kl.KWarn(klog.KlrNotHandled, "Unknown Udta SubType: %s\n", subBox.Type())
 			subBox.typeNotDecoded = true
 
 		}
 		b.AddSubBox(subBox)
 	}
-	return nil
+	return err
 }
 
 // HintMediaHeader
@@ -451,6 +452,7 @@ type MvhdBox struct {
 func (b *MvhdBox) parse() error {
 	b.parseFullBoxExt() // consume [0:4] => version and flags
 	var offset int
+	var err error
 	if b.version == 0 {
 		b.CreationTime = uint64(binary.BigEndian.Uint32(b.raw[4:8]))
 		b.ModificationTime = uint64(binary.BigEndian.Uint32(b.raw[8:12]))
@@ -465,12 +467,12 @@ func (b *MvhdBox) parse() error {
 		offset = 32
 	}
 
-	if err := b.Rate.UnmarshalBinary(b.raw[offset : offset+4]); err != nil {
-		return errors.Wrap(err, "failed to get rate")
+	if err1 := b.Rate.UnmarshalBinary(b.raw[offset : offset+4]); err1 != nil {
+		err = kl.KWarn(klog.KlrFuncFail, "%v: failed to unmarshal rate", err1)
 	}
 
-	if err := b.Volume.UnmarshalBinary(b.raw[offset+4 : offset+6]); err != nil {
-		return errors.Wrap(err, "failed to get volume")
+	if err1 := b.Volume.UnmarshalBinary(b.raw[offset+4 : offset+6]); err1 != nil {
+		err = kl.KWarn(klog.KlrFuncFail, "%v: failed to unmarshal volume", err1)
 	}
 
 	b.Reserved = b.raw[offset+6 : offset+16]
@@ -482,7 +484,7 @@ func (b *MvhdBox) parse() error {
 
 	b.Predefined = b.raw[offset : offset+24]
 	b.NextTrackID = binary.BigEndian.Uint32(b.raw[offset+24 : offset+28])
-	return nil
+	return err
 }
 
 type IodsBox struct {

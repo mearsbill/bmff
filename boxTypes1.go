@@ -3,6 +3,8 @@ package bmff
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
+	"klog"
 )
 
 // File is the top level containter for the decode
@@ -42,6 +44,50 @@ func (b *File_s) PrintRecursive() {
 func (f *File_s) PrintAll() {
 	f.PrintRecursive()
 }
+
+// function to output the  contents of the file object
+// objDepth = 1 means just the top level (zero will also work for this)
+func (f *File_s) Output(w io.Writer, objDepth int) (byteCount int, err error) {
+	// depth of zero means: go no deeper
+	totalByteCount := 0
+	for idx, bx := range f.subBox {
+		boxByteCount, err := bx.Output(w, objDepth-1)
+		totalByteCount += boxByteCount
+		if err != nil {
+			err = kl.KError(klog.KlrWriteFail, "#%d.. %v", idx, err)
+			return totalByteCount, err
+		}
+	}
+
+	return totalByteCount, nil
+}
+
+func (f *File_s) InsertEmsg(e *EmsgBox) (rErr error) {
+	// find moof box else return error
+	for idx, sbox := range f.subBox {
+		if sbox.Type() == "moof" {
+			// insert emsg before moof
+			err := f.InsertSubBox(e, idx)
+			if err != nil {
+				return kl.KError(klog.KlrWrapper, "%v", err)
+			}
+			f.Emsg = e
+			return nil
+		}
+	}
+	return kl.KWarn(klog.KlrNotFound, "Warning: required moof box not found in InsertEmsg")
+	// idx := len(f.subBox)
+	// kl.KTrace("Inserting @ end of %d boxes", idx)
+	// err := f.InsertSubBox(e, idx)
+	// if err != nil {
+	// 	return kl.KError(klog.KlrWrapper, "%v", err)
+	// }
+	f.Emsg = e
+	return nil
+
+}
+
+// *********************************************
 
 type FtypBox struct {
 	*box
@@ -84,6 +130,8 @@ func (b *FtypBox) PrintRecursive() {
 		b1, err = b.GetSubBox()
 	}
 }
+
+// ******************************************************************
 
 type StypBox struct {
 	*box

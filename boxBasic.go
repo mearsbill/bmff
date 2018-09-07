@@ -5,10 +5,18 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
-
 	"efmt"
+	"klog"
 )
+
+var kl *klog.KLoggerS
+
+func init() {
+	//fmt.Printf("Running boxBasic.go init function\n")
+	kl = klog.NewKLoggerS()
+	kl.SetPrefix("bmff")
+	kl.EnableFeature(klog.Ltrace)
+}
 
 // Box is defined as "object‐oriented building block defined by a unique type identifier and length".
 // Used in MP4 Containers and referenced as an "atom" in some specifications including the first definition of MP4.
@@ -66,6 +74,7 @@ type Box interface {
 	PrintDetail()
 	PrintRecursive()
 	Output(io.Writer, int) (writeCount int, err error)
+	SizeHeader() int
 }
 
 // helper function to parse the FullBox Extension
@@ -125,7 +134,7 @@ func (b *box) ResetSubBox() {
 }
 func (b *box) GetSubBox() (Box, error) {
 	if b.readIdx == b.writeIdx {
-		return nil, fmt.Errorf("No box available")
+		return nil, kl.KError(klog.KlrBadIndex, "Subbox read index(%d) out of range", b.readIdx)
 	}
 	b.readIdx++
 	return b.subBox[b.readIdx-1], nil
@@ -133,6 +142,25 @@ func (b *box) GetSubBox() (Box, error) {
 func (b *box) AddSubBox(aBox Box) {
 	b.subBox = append(b.subBox, aBox)
 	b.writeIdx++
+}
+func (b *box) InsertSubBox(iBox Box, index int) error {
+	if index < 0 || index > len(b.subBox) {
+		return kl.KError(klog.KlrBadIndex, "Invalid insert index:%d for InsertSubBox", index)
+	}
+	nBl := make([]Box, 0)
+	if index > 0 {
+		//fmt.Printf("adding box before %s\n",b.subBox[index].boxtype)
+		nBl = append(nBl, b.subBox[0:index]...)
+	}
+	//kl.KTrace("adding box %p\n", iBox)
+	//Box.PrintDetail()
+	//time.Sleep(time.Second)
+	nBl = append(nBl, iBox)
+	if index != len(b.subBox) {
+		nBl = append(nBl, b.subBox[index:]...)
+	}
+	b.subBox = nBl
+	return nil // no error
 }
 
 func (b *box) EncodeFullHeaderExt() (writeCount int) {
@@ -144,6 +172,21 @@ func (b *box) EncodeFullHeaderExt() (writeCount int) {
 	return 4
 }
 
+func (b *box) SizeHeader() (rSize int) {
+	// basic header is not stored as part of the raw payload
+	// the extended head is stored in the first 4 bytes of the extended header
+	// so we don't count that here
+
+	accumSz := 8     // 4 bytes size.  4 bytes boxtype
+	if b.size == 1 { // if largeSize
+		accumSz += 8
+	}
+	if b.boxtype == "uuid" {
+		accumSz += 16
+	}
+	return accumSz
+
+}
 func (b *box) outputHeader(w io.Writer) (writeCount int, err error) {
 	// make a large header area and then shorten it for writing
 	// assemble out header into this array and then output it
@@ -180,7 +223,25 @@ func (b *box) Output(w io.Writer, objDepth int) (writeCount int, err error) {
 	// basic writer outputs only containers and raw
 	// must use proper boxtype for other boxes
 
-	// FIXME  should confirm the size for each box is sum of subboxes/payload plus header
+	// // confirm correct size in header.  If we have subboxes,
+	// // we need to confirm that they all sum up correctly
+	// fmt.Printf("Calling output for box %s\n", b.Type())
+	// var sbSum int64 = 0
+	// if b.GetSubBoxCount() != 0 {
+	// 	for _, sb := range b.subBox {
+	// 		sbSum += int64(sb.SizeHeader())
+	// 		sbSum += b.Size()
+	// 	}
+	// 	if sbSum != int64(len(b.raw)) {
+	// 		fmt.Errorf("Error: sum of boxes=%d while rawLen=%d\n", sbSum, b.raw)
+	// 	}
+	// } else {
+	//
+	// }
+	// //mySize := b.SizeHeader()
+	//
+	// //if b.isFullBox
+
 	wCount, err := b.outputHeader(w)
 	if err != nil {
 		return wCount, err
@@ -189,18 +250,15 @@ func (b *box) Output(w io.Writer, objDepth int) (writeCount int, err error) {
 		for _, subBox := range b.subBox {
 			oC, bErr := subBox.Output(w, objDepth-1)
 			if bErr != nil {
-				bErr = fmt.Errorf("Got subbox.Output error: %v", err)
-				return wCount, bErr
+				return wCount, kl.KError(klog.KlrWrapper, "%v", err)
 			}
 			wCount += oC
 		}
 		return wCount, nil
 	}
 
-	if b.size == 0 {
-		// shouln't be possible
-		err = fmt.Errorf("We don't support size=0")
-		return 0, err
+	if b.size == 0 { // shouln't be possible
+		return 0, kl.KError(klog.KlrBadData, "size=0 not supported")
 	}
 
 	// output the raw payload...  account for the extended header
@@ -225,9 +283,9 @@ func NewBox(src io.Reader, newtag *efmt.Ntag) (*box, error) {
 
 	buf := make([]byte, boxHeaderSize)
 	// read and parse first 8 bytes
-	_, err := io.ReadFull(src, buf)
+	bytesRead, err := io.ReadFull(src, buf)
 	if err != nil {
-		return nil, errors.Wrap(err, "error reading buffer header")
+		return nil, kl.KSysErr(klog.KlrSysErr, err, "bufLen=%d bytesRead=%d", len(buf), bytesRead)
 	}
 	s := binary.BigEndian.Uint32(buf[0:4])
 	b := &box{
@@ -241,7 +299,7 @@ func NewBox(src io.Reader, newtag *efmt.Ntag) (*box, error) {
 		// read in largesize and parseSdesChunk
 		_, err := io.ReadFull(src, buf)
 		if err != nil {
-			return nil, errors.Wrap(err, "error reading buffer header large size")
+			return nil, kl.KSysErr(klog.KlrSysErr, err, "")
 		}
 		b.largesize = int64(binary.BigEndian.Uint64(buf))
 		bufUsed += 8
@@ -251,20 +309,20 @@ func NewBox(src io.Reader, newtag *efmt.Ntag) (*box, error) {
 		buf1 := make([]byte, 16)
 		_, err := io.ReadFull(src, buf1)
 		if err != nil {
-			return nil, errors.Wrap(err, "error reading buffer header uuid")
+			return nil, kl.KError(klog.KlrReadFail, "%v", err)
 		}
 		b.usertype = string(buf1)
 		bufUsed += 16
 	}
 	if b.size == 0 {
-		return nil, errors.Wrap(err, "NewBox: unable to handle size=0")
+		return nil, kl.KError(klog.KlrBadData, "size=0 not supported")
 	}
 	rawSize := b.Size() - int64(bufUsed)
 	if rawSize > 0 {
 		b.raw = make([]byte, rawSize)
 		_, err = io.ReadFull(src, b.raw)
 		if err != nil {
-			return nil, errors.Wrap(err, "Error reading box data")
+			return nil, kl.KError(klog.KlrReadFail, "%v", err)
 		}
 		//fmt.Printf("%-16s %-16s %7d\n", b.Tag.String(), b.Tag.Indent()+b.boxtype, b.size)
 		return b, nil

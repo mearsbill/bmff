@@ -1,8 +1,10 @@
 package bmff
 
 import (
+	"efmt"
 	"encoding/binary"
 	"fmt"
+	"klog"
 )
 
 // type box struct {
@@ -122,7 +124,7 @@ message_data:
 
 
 */
-type EmsgBox struct { // is a Fullbox, version=0, flags = 9
+type EmsgBox struct { // is a Fullbox, version=0, flags = 0
 	*box
 	scheme_id_uri           string
 	value                   string
@@ -133,6 +135,24 @@ type EmsgBox struct { // is a Fullbox, version=0, flags = 9
 	message_data            string
 }
 
+func NewEmsgBox(tag *efmt.Ntag, uri, val string, tscale, ptd, ed, id uint32, md string) *EmsgBox {
+	b := &box{
+		boxtype: "emsg",
+		size:    1,
+		Tag:     tag.Clone(),
+	}
+	return &EmsgBox{
+		box:                     b,
+		scheme_id_uri:           uri,
+		value:                   val,
+		timescale:               tscale,
+		presentation_time_delta: ptd,
+		event_duration:          ed,
+		id:                      id,
+		message_data:            md,
+	}
+}
+
 // recursive function to print out the box type, size and substructure of a box
 func (b *EmsgBox) PrintDetail() {
 	children := "   "
@@ -141,7 +161,7 @@ func (b *EmsgBox) PrintDetail() {
 		children = fmt.Sprintf("%2d ", cCount)
 	}
 	fmt.Printf("%-16s %-19s %7d ", b.Tag.String(), b.Tag.Indent()+children+b.boxtype+" "+b.typeNotDecoded.String(), b.size)
-	fmt.Printf("SchemeIdUri: %s Value:\"%s\" timescale:%d presentationTimeDelta:%d eventDuration:%d id:%d messageData:%s\n",
+	fmt.Printf("SchemeIdUri: \"%s\" Value:\"%s\" timescale:%d presentationTimeDelta:%d eventDuration:%d id:%d messageData:\"%s\"\n",
 		b.scheme_id_uri, b.value, b.timescale, b.presentation_time_delta, b.event_duration, b.id, b.message_data)
 }
 
@@ -179,12 +199,12 @@ func (b *EmsgBox) parse() error {
 	offset := 4
 	b.scheme_id_uri, offset = parseString(b.raw, offset)
 	if b.scheme_id_uri == "" {
-		return fmt.Errorf("In EmsgBox::parse string not terminated\n")
+		return kl.KWarn(klog.KlrBadData, "string not terminated\n")
 	}
 
 	b.value, offset = parseString(b.raw, offset)
 	if b.value == "" {
-		return fmt.Errorf("In EmsgBox::parse string not terminated")
+		return kl.KWarn(klog.KlrBadData, "string not terminated\n")
 	}
 	b.timescale = binary.BigEndian.Uint32(b.raw[offset : offset+4])
 	b.presentation_time_delta = binary.BigEndian.Uint32(b.raw[offset+4 : offset+8])
@@ -195,9 +215,15 @@ func (b *EmsgBox) parse() error {
 }
 
 func (b *EmsgBox) Encode() (encodeSize int, er error) {
+	//	kl.KTrace("EmsgBox.encode called\n")
 	estRawSize := len(b.scheme_id_uri) + len(b.value) + len(b.message_data) + 2 /* for null termination*/ + 16 /* 4 *uint32 */ + 4 /* fullBoxext */
-	fmt.Printf("estRawSize:%d  uri:%d val:%d messg:%d \n", estRawSize, len(b.scheme_id_uri), len(b.value), len(b.message_data))
+	//	kl.KTrace("estRawSize:%d  uri:%d val:%d messg:%d \n", estRawSize, len(b.scheme_id_uri), len(b.value), len(b.message_data))
 	b.raw = make([]byte, estRawSize, estRawSize+2)
+	//	kl.KTrace("got b.raw\n")
+	//	time.Sleep(time.Second)
+	b.isFullBox = true
+	b.version = 0
+	b.flags = [3]byte{0, 0, 0}
 	offset := b.EncodeFullHeaderExt()
 	offset += encodeString(b.raw, offset, b.scheme_id_uri) // returns length including null
 	offset += encodeString(b.raw, offset, b.value)         // returns length including null
@@ -211,6 +237,14 @@ func (b *EmsgBox) Encode() (encodeSize int, er error) {
 	offset += 4
 	offset += copy(b.raw[offset:], []byte(b.message_data)) // no null termination for last string at end of message
 	b.raw = b.raw[0:offset]
-	return offset, nil
+
+	// make sure the header is correct
+	size := offset + 8
+	b.boxtype = "emsg"
+	b.usertype = ""
+	b.size = uint32(size)
+	b.largesize = 0
+
+	return size, nil
 
 }

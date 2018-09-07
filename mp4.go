@@ -3,32 +3,30 @@ package bmff
 import (
 	"bufio"
 	"bytes"
-	"fmt"
+	"efmt"
 	"io"
+	"klog"
 
 	"github.com/pkg/errors"
-
-	"efmt"
 )
 
 func readBoxes(buf []byte, tag *efmt.Ntag) <-chan *box {
 	boxes := make(chan *box, 1000)
-	//    fmt.Printf("%v\n",tag)
 	newTag := tag.Clone()
 	newTag.Push()
-	//    fmt.Printf("%v\n",newTag)
+	//kl.KTrace("buf has %d bytes\n", len(buf))
 	r := bytes.NewReader(buf)
 	go func() {
 		for eof := false; !eof; {
 			b, err := NewBox(r, newTag)
 			newTag.Next()
 			if err != nil {
-				switch errors.Cause(err) {
-				case io.EOF:
+				kReason := kl.GetRootCause()
+				switch kReason {
+				case klog.KlrEOF:
 					eof = true
 				}
 			}
-
 			boxes <- b
 		}
 		close(boxes)
@@ -51,6 +49,17 @@ readloop:
 		b, err := NewBox(r, topTag)
 		bxFlag = false
 		topTag.Next()
+		if err != nil {
+			kReason := kl.GetRootCause()
+			switch kReason {
+			case klog.KlrEOF:
+				//kl.KTrace("Got to EOF on Parse")
+				if b == nil {
+					break readloop
+				}
+			}
+		}
+
 		if err != nil {
 			switch errors.Cause(err) {
 			case io.EOF:
@@ -136,7 +145,7 @@ readloop:
 			bx = sb
 			bxFlag = true
 		default:
-			fmt.Printf("%s: @Top.. Unknown Type:%s\n", b.Tag.String(), b.Type())
+			kl.KWarn(klog.KlrNotHandled, "%s: @Top.. Unknown Type:%s\n", b.Tag.String(), b.Type())
 			b.typeNotDecoded = true
 		}
 		if bxFlag {
@@ -148,21 +157,4 @@ readloop:
 	}
 
 	return f, nil
-}
-
-// function to output the  contents of the file object
-// objDepth = 1 means just the top level (zero will also work for this)
-func (f *File_s) Output(w io.Writer, objDepth int) (byteCount int, err error) {
-	// depth of zero means: go no deeper
-	totalByteCount := 0
-	for idx, bx := range f.subBox {
-		boxByteCount, err := bx.Output(w, objDepth-1)
-		totalByteCount += boxByteCount
-		if err != nil {
-			err = fmt.Errorf("#%d.. Output got error: %v", idx, err)
-			return totalByteCount, err
-		}
-	}
-
-	return totalByteCount, nil
 }
